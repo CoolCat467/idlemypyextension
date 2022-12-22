@@ -6,14 +6,13 @@
 
 # Programmed by CoolCat467
 
-from __future__ import annotations
 
 __title__     = 'idlemypyextension'
 __author__    = 'CoolCat467'
 __license__   = 'GPLv3'
-__version__   = '0.0.0'
+__version__   = '0.1.0'
 __ver_major__ = 0
-__ver_minor__ = 0
+__ver_minor__ = 1
 __ver_patch__ = 0
 
 from typing import Any, TypeVar, cast, Final
@@ -23,6 +22,7 @@ import os
 import sys
 import json
 import math
+import re
 import traceback
 from functools import wraps
 from tkinter   import messagebox, Event, Tk
@@ -160,6 +160,23 @@ def set_search_engine_params(engine: searchengine.SearchEngine,
         if name in data:
             getattr(engine, f'{name}var').set(data[name])
 
+def get_fake_editwin() -> PyShellEditorWindow:
+    "Get fake edit window for testing"
+    from idlelib.pyshell import PyShellEditorWindow
+    class FakeEditWindow(PyShellEditorWindow):
+        "FakeEditWindow for testing"
+        from tkinter import Text
+        class _FakeText(Text):
+            bind = lambda x, y: None
+        text = _FakeText
+        from idlelib.format import FormatRegion
+        fregion = FormatRegion
+        from idlelib.pyshell import PyShellFileList
+        flist = PyShellFileList
+        from idlelib.iomenu import IOBinding
+        io = IOBinding
+    return FakeEditWindow
+
 # Important weird: If event handler function returns 'break',
 # then it prevents other bindings of same event type from running.
 # If returns None, normal and others are also run.
@@ -243,6 +260,9 @@ class idlemypyextension:# pylint: disable=invalid-name
                 self.text.bind(f'<<{bind_name}>>', getattr(self, attr_name))
 ##                print(f'{attr_name} -> {bind_name}')
 
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}({self.editwin!r})'
+
     @property
     def daemon_timeout(self) -> int:
         "Daemon timeout"
@@ -323,10 +343,11 @@ class idlemypyextension:# pylint: disable=invalid-name
                 )
                 setattr(cls, key, value)
 
-    def get_msg_line(self, indent: int, msg: str) -> str:
+    @classmethod
+    def get_msg_line(cls, indent: int, msg: str) -> str:
         "Return message line given indent and message."
         strindent = ' '*indent
-        return f'{strindent}{self.comment}{msg}'
+        return f'{strindent}{cls.comment}{msg}'
 
     def get_line(self, line: int) -> str:
         "Get the characters from the given line in the currently open file."
@@ -373,6 +394,8 @@ class idlemypyextension:# pylint: disable=invalid-name
                        default_line: int
                        ) -> dict[str, list[dict[str, str | int]]]:
         "Get list of message dictionaries from mypy output."
+        error_type = re.compile(r'  \[[a-z\-]+\]\s*$')
+
         files: dict[str, list[dict[str, str | int]]] = {}
         for comment in comments.splitlines():
             filename = default_file
@@ -392,6 +415,10 @@ class idlemypyextension:# pylint: disable=invalid-name
                     line = int(position[1])
                 if len(position) > 2:
                     col = int(position[2])
+            comment_type = error_type.search(text)
+            if comment_type is not None:
+                text = text[:comment_type.start()]
+                mtype = f'{comment_type.group(0)[3:-1]} {mtype}'
 
             message: dict[str, str | int] = {
                 'file'   : filename,
@@ -510,7 +537,7 @@ class idlemypyextension:# pylint: disable=invalid-name
             return started
         return True
 
-    def shutdown_dmypy_daemon_event(self, event: Event[Any]) -> str:
+    def shutdown_dmypy_daemon_event(self, event: 'Event[Any]') -> str:
         "Shutdown the dmypy daemon"
         # pylint: disable=unused-argument
         if not client.is_running(self.status_file):
@@ -518,7 +545,7 @@ class idlemypyextension:# pylint: disable=invalid-name
             return 'break'
         # Only stop if running
         response = client.stop(self.status_file)
-        if 'err' in response or 'error' in response:
+        if any((v in response and response[v] for v in ('err', 'error'))):
             # Kill
             client.kill(self.status_file)
         return 'break'
@@ -542,6 +569,8 @@ class idlemypyextension:# pylint: disable=invalid-name
         """Get suggestion text from annotation.
 
         Return None on error or no difference, text if different"""
+        while annotation['line'] >= 0 and not 'def' in self.get_line(annotation['line']):
+            annotation['line'] -= 1
         line = annotation['line']
 
         try:
@@ -650,7 +679,7 @@ class idlemypyextension:# pylint: disable=invalid-name
         self.text.bell()
 
     @undo_block
-    def suggest_signature_event(self, event: Event[Any]) -> str:
+    def suggest_signature_event(self, event: 'Event[Any]') -> str:
         "Handle suggest signature event"
         # pylint: disable=unused-argument
         init_return, file, start_line_no = self.initial()
@@ -700,7 +729,7 @@ class idlemypyextension:# pylint: disable=invalid-name
         return None, file, start_line_no
 
     @undo_block
-    def type_check_event(self, event: Event[Any]) -> str:
+    def type_check_event(self, event: 'Event[Any]') -> str:
         "Preform a mypy check and add comments."
         # pylint: disable=unused-argument
         init_return, file, start_line_no = self.initial()
@@ -741,7 +770,7 @@ class idlemypyextension:# pylint: disable=invalid-name
         self.text.bell()
         return 'break'
 
-    def remove_type_comments_event(self, event: Event[Any]) -> str:
+    def remove_type_comments_event(self, event: 'Event[Any]') -> str:
         "Remove selected mypy comments."
         # pylint: disable=unused-argument
         # Get selected region lines
@@ -764,7 +793,7 @@ class idlemypyextension:# pylint: disable=invalid-name
         return 'break'
 
     @undo_block
-    def remove_all_type_comments(self, event: Event[Any]) -> str:
+    def remove_all_type_comments(self, event: 'Event[Any]') -> str:
         "Remove all mypy comments."
         # pylint: disable=unused-argument
         eof_idx = self.text.index('end')
@@ -788,7 +817,7 @@ class idlemypyextension:# pylint: disable=invalid-name
         return 'break'
 
     @undo_block
-    def find_next_type_comment_event(self, event: Event[Any]) -> str:
+    def find_next_type_comment_event(self, event: 'Event[Any]') -> str:
         "Find next comment by hacking the search dialog engine."
         # pylint: disable=unused-argument
         self.reload()
@@ -824,30 +853,4 @@ idlemypyextension.reload()
 if __name__ == '__main__':
     print(f'{__title__} v{__version__}\nProgrammed by {__author__}.\n')
     check_installed()
-##    # lintcheck: ungrouped-imports (C0412): Imports from package idlelib are not grouped
-##    # lintcheck: reimported (W0404): Reimport 'PyShellEditorWindow' (imported line 31)
-##    from idlelib.pyshell import PyShellEditorWindow
-##    # lintcheck: invalid-name (C0103): Class name "fakeeditwin" doesn't conform to PascalCase naming style
-##    # lintcheck: missing-class-docstring (C0115): Missing class docstring
-##    class fakeeditwin(PyShellEditorWindow):
-##        # lintcheck: import-outside-toplevel (C0415): Import outside toplevel (tkinter.Text)
-##        from tkinter import Text
-##        # lintcheck: too-many-ancestors (R0901): Too many ancestors (9/7)
-##        class _FakeText(Text):
-##            # lintcheck: unnecessary-lambda-assignment (C3001): Lambda expression assigned to a variable. Define a function using the "def" keyword instead.
-##            # types: error: Incompatible types in assignment (expression has type "Callable[[Any, Any], None]", base class "Widget" defined the type as overloaded function)
-##            bind = lambda x, y: None
-##        # types:   ^
-##        text = _FakeText
-##        # lintcheck: import-outside-toplevel (C0415): Import outside toplevel (idlelib.format.FormatRegion)
-##        from idlelib.format import FormatRegion
-##        fregion = FormatRegion
-##        # lintcheck: import-outside-toplevel (C0415): Import outside toplevel (idlelib.pyshell.PyShellFileList)
-##        from idlelib.pyshell import PyShellFileList
-##        flist = PyShellFileList
-##        # lintcheck: import-outside-toplevel (C0415): Import outside toplevel (idlelib.iomenu.IOBinding)
-##        from idlelib.iomenu import IOBinding
-##        io = IOBinding
-##    # types: error: Argument 1 to "idlemypyextension" has incompatible type "Type[fakeeditwin]"; expected "PyShellEditorWindow"
-##    self = idlemypyextension(fakeeditwin)
-### types:                     ^
+##    self = idlemypyextension(get_fake_editwin())

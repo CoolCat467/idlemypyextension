@@ -6,12 +6,14 @@ https://github.com/pypa/sampleproject
 """
 
 # Always prefer setuptools over distutils
+# types: import error: Skipping analyzing "setuptools": module is installed, but missing library stubs or py.typed marker
+# types: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
 from setuptools import setup, find_packages
 import pathlib
 
 here = pathlib.Path(__file__).parent.resolve()
 
-version = '0.0.0'
+version = '0.1.0'
 # Get the long description from the README file
 long_description = (here / 'README.md').read_text(encoding='utf-8')
 install_requires = ['mypy']

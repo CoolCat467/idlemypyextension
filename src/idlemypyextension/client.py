@@ -200,7 +200,7 @@ def _start_server(status_file: str,
     if _daemonize(start_options,
                   status_file,
                   timeout  = daemon_timeout,
-                  log_file = log_file):
+                  log_file = log_file) != 0:
         return False
     return _wait_for_server(status_file)
 
@@ -238,9 +238,7 @@ def start(status_file: str,
     """Start daemon if not already running.
 
     Returns False if error starting / already running."""
-    try:
-        get_status(status_file)
-    except BadStatus:
+    if not is_running(status_file):
         # Bad or missing status file or dead process; good to start.
         return _start_server(status_file,
                              flags          = flags,

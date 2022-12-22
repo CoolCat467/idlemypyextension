@@ -24,17 +24,19 @@
 ##   See the License for the specific language governing permissions and
 ##   limitations under the License.
 
-from __future__ import annotations
-
 __title__ = 'Annotate'
+__author__ = 'CoolCat467'
 __license__ = 'Apache License, Version 2.0'
 
-from typing import Any, NoReturn, Final, Sequence
-from collections.abc import Callable
-import re
+
+from collections.abc import Callable, Collection, Sequence
 from tokenize import generate_tokens, tok_name
+from typing import Any, Final, NoReturn
+import re
+
 
 BUILTINS: Final = {'List', 'Set', 'Type', 'Dict', 'Tuple'}
+
 
 class ParseError(Exception):
     """Raised on any type comment parse error.
@@ -46,11 +48,12 @@ class ParseError(Exception):
             comment = ''
         elif hasattr(self, 'add_note'):  # New in Python 3.11
             self.add_note(comment)
-        super(ParseError, self).__init__(comment)
+        super().__init__(comment)
+
 
 class Token:
     "Base token"
-    __slots__ = ('text')
+    __slots__ = ('text',)
     def __init__(self, text: str | None = None) -> None:
         self.text = text
 
@@ -58,87 +61,106 @@ class Token:
         value = '' if self.text is None else f'{self.text!r}'
         return f'{self.__class__.__name__}({value})'
 
+
 class Name(Token):
     """Name Token"""
+
 
 class FunctionName(Token):
     """Function name"""
 
+
 class ArgumentName(Name):
     """Argument name"""
+
 
 class Operator(Token):
     """Operator Token"""
 
+
 class DottedName(Name):
     """An identifier token, such as 'List', 'int' or 'package.name'"""
+
 
 class ArgumentDefault(DottedName):
     """Argument value"""
 
+
 class Separator(Operator):
     """A separator or punctuator token such as '(', '[' or '->'"""
 
+
 class EndSeparator(Separator):
-    """End seprator that does not need extra space"""
+    """End separator that does not need extra space"""
+
 
 class Colin(Separator):
     """Colin ':'"""
 
+
 class TypeDef(Colin):
     """Type Definition Start ':'"""
 
+
 class DefaultDef(Separator):
-    """Argumen Default Definiition Start '='"""
+    """Argument Default Definition Start '='"""
+
 
 class Keyword(Name):
     """Keyword such as 'async', 'def'"""
 
+
 class ReturnTypeDef(Separator):
     """Return type definition '->'"""
+
 
 class Definition(Keyword):
     """Definition keyword"""
 
+
 class EndDefinition(Colin):
     """End Definition Colin"""
+
 
 class End(Token):
     """A token representing the end of a type comment"""
     def __init__(self) -> None:
         super().__init__()
 
-def tokenize(s: str) -> list[Token]:
+
+def tokenize(txt: str) -> list[Token]:
     """Translate a type comment into a list of tokens."""
-    original = s
-    s = s.replace('?', '')
+    original = txt
+    txt = txt.replace('?', '')
     tokens: list[Token] = []
     while True:
-        if not s:
+        if not txt:
             tokens.append(End())
             return tokens
-        elif s[0] in {' ', '\n'}:
-            s = s[1:]
-        elif s[0] in '()[],*':
-            tokens.append(Separator(s[0]))
-            s = s[1:]
-        elif s[:2] == '->':
+        if txt[0] in {' ', '\n'}:
+            txt = txt[1:]
+        elif txt[0] in '()[],*':
+            tokens.append(Separator(txt[0]))
+            txt = txt[1:]
+        elif txt[:2] == '->':
             tokens.append(Separator('->'))
-            s = s[2:]
-        elif s[:3] == '...':
+            txt = txt[2:]
+        elif txt[:3] == '...':
             tokens.append(DottedName('...'))
-            s = s[3:]
+            txt = txt[3:]
         else:
-            m = re.match(r'[-\w`]+(\s*(\.|:)\s*[-/\w]*)*', s)
-            if not m:
-                raise ParseError(f'Could not parse {s!r} from {original!r}')
-            fullname = m.group(0)
+            # lintcheck: invalid-name (C0103): Variable name "m" doesn't conform to snake_case naming style
+            match_ = re.match(r'[-\w`]+(\s*(\.|:)\s*[-/\w]*)*', txt)
+            if not match_:
+                raise ParseError(f'Could not parse {txt!r} from {original!r}')
+            fullname = match_.group(0)
+            size = len(fullname)
             fullname = fullname.replace(' ', '')
             if '`' in fullname:
                 fullname = fullname.split('`')[0]
             # pytz creates classes with the name of the timezone being used:
             # https://github.com/stub42/pytz/blob/f55399cddbef67c56db1b83e0939ecc1e276cf42/src/pytz/tzfile.py#L120-L123
-            # This causes pyannotates to crash as it's invalid to have a class
+            # This causes pyannotate to crash as it's invalid to have a class
             # name with a `/` in it (e.g. "pytz.tzfile.America/Los_Angeles")
             if fullname.startswith('pytz.tzfile.'):
                 fullname = 'datetime.tzinfo'
@@ -149,7 +171,7 @@ def tokenize(s: str) -> list[Token]:
                 # than crashing.
                 fullname = 'Any'
             tokens.append(DottedName(fullname))
-            s = s[len(m.group(0)):]
+            txt = txt[size:]
 
 
 def get_line_indent(text: str, char: str = ' ') -> int:
@@ -175,6 +197,7 @@ def tokenize_definition(line: int,
     defstart = False  # Has definition started?
     brackets = 0  # Current number of brackets in use
     typedef = 0  # Brackets in type definition (truthy if in type definition)
+    default_arg = 0  # Brackets in default argument value
     indent = 0  # Current indent
     tokens: list[Token] = []
 
@@ -185,7 +208,7 @@ def tokenize_definition(line: int,
         if tok_name[token.type] == 'NAME':
             if string == 'async':  # Remember async
                 tokens.append(Keyword(string))
-            elif string == 'def':  # Error if more than one incase invalid start
+            elif string == 'def':  # Error if more than one in case invalid start
                 if hasdef:
                     raise ParseError('Did not expect second definition keyword')
                 tokens.append(Definition(string))
@@ -196,12 +219,15 @@ def tokenize_definition(line: int,
                 # If last was also a DottedName and it ended with a dot,
                 # instead add name text to previous
                 if (tokens and isinstance(tokens[-1], DottedName)
+                    and tokens[-1].text is not None
                     and tokens[-1].text.endswith('.')):
-                    tokens.append(DottedName(tokens.pop().text + string))
+                    previous = tokens.pop().text
+                    assert previous is not None
+                    tokens.append(DottedName(previous + string))
                 else:
                     tokens.append(DottedName(string))
-            elif tokens and isinstance(tokens[-1], DefaultDef):
-                # If previous was a DefaultDef, must be ArgumentDefault
+            elif default_arg:
+                # If defining argument default, add ArgumetDefault
                 tokens.append(ArgumentDefault(string))
             else:  # Otherwise is an argument name
                 tokens.append(ArgumentName(string))
@@ -209,19 +235,23 @@ def tokenize_definition(line: int,
             if string in '([{':
                 # We have traveled in an bracket level
                 brackets += 1
-                # If we have a definition and this is open parenthisis,
+                # If we have a definition and this is open parenthesis,
                 # we are starting definition
                 if not defstart and hasdef and string == '(':
                     defstart = True
                 # If doing a type definition, we have typedef level
                 if typedef:
                     typedef += 1
+                if default_arg:
+                    default_arg += 1
                 tokens.append(EndSeparator(string))  # No spaces
             elif string in ')]}':
                 # Left a bracket level
                 brackets -= 1
                 if typedef:  # Maybe left a type def level too
                     typedef -= 1
+                if default_arg:
+                    default_arg -= 1
                 tokens.append(EndSeparator(string))
             elif string in {'*', '**'}:
                 tokens.append(EndSeparator(string))
@@ -231,6 +261,8 @@ def tokenize_definition(line: int,
                 # If exactly one level, leaving type definition land
                 if typedef == 1:
                     typedef = 0
+                if default_arg == 1:
+                    default_arg = 0
                 tokens.append(Separator(string))  # Space on end
             elif string == '->':
                 # We are defining a return type
@@ -247,36 +279,40 @@ def tokenize_definition(line: int,
             elif string == '=':  # Defining a default definition
                 tokens.append(DefaultDef(string))
                 typedef = 0  # shouldn't be defining type but make sure
+                default_arg = 1
             elif string in {'-', '+', '~'}:  # Unary operators
                 # Add on to previous ArgumentDefault if it exists
                 if tokens and isinstance(tokens[-1], ArgumentDefault):
-                    tokens.append(ArgumentDefault(tokens.pop().text + string))
+                    previous = tokens.pop().text
+                    assert previous is not None
+                    tokens.append(ArgumentDefault(previous + string))
                 else:
                     tokens.append(ArgumentDefault(string))
             elif string in {'/', '//', '*', '^', '@', '%', '**',
                             '>>', '<<', '&', '|'}:  # All other math operators
                 if tokens and isinstance(tokens[-1], ArgumentDefault):
-                    # In-place mathmatics for default argument, add
-                    # on to previous if exists
-                    tokens.append(ArgumentDefault(tokens.pop().text
-                                                  + ' ' + string + ' '))
+                    prev = tokens.pop().text
+                    assert prev is not None
+                    tokens.append(ArgumentDefault(f'{prev} {string} '))
                 elif string == '@' and not hasdef:
-                    # Not matrix mult, decorator
-                    tokens.append(EndSeparator(string))
+                    # Not matrix multiplication, decorator
+                    tokens.append(Separator(string))
                 else:
                     tokens.append(ArgumentDefault(string))
             elif string == '.' and (tokens
                                     and isinstance(tokens[-1], DottedName)):
-                tokens.append(DottedName(tokens.pop().text + string))
-            elif string == '...':  # Elipsis constant
+                previous = tokens.pop().text
+                assert previous is not None
+                tokens.append(DottedName(previous + string))
+            elif string == '...':  # Ellipsis constant
                 tokens.append(DottedName(string))
             else:
-                raise ParseError(f'Exaustive list of OP failed: {string}')
+                raise ParseError(f'Exaustive list of OP failed: {string!r}')
         elif tok_name[token.type] == 'INDENT':
             tokens.append(EndSeparator(string))
             indent = len(string)
         elif tok_name[token.type] in {'NL', 'NEWLINE'}:
-            # replace seperator ends with end seperators
+            # replace separator ends with end separators
             if tokens and isinstance(tokens[-1], Separator):
                 tokens.append(EndSeparator(tokens.pop().text))
             tokens.append(EndSeparator(string))
@@ -284,12 +320,14 @@ def tokenize_definition(line: int,
             indent = get_line_indent(get_line(line))
             tokens.append(EndSeparator(' '*indent))
         elif tok_name[token.type] == 'COMMENT':
-            # Remember comments as seperators
+            # Remember comments as separators
             tokens.append(EndSeparator(string))
         elif tok_name[token.type] in {'STRING', 'NUMBER'}:
             # Only argument default, so add on to previous if exists
             if tokens and isinstance(tokens[-1], ArgumentDefault):
-                tokens.append(ArgumentDefault(tokens.pop().text + string))
+                previous = tokens.pop().text
+                assert previous is not None
+                tokens.append(ArgumentDefault(previous + string))
             else:
                 tokens.append(ArgumentDefault(string))
         else:
@@ -350,6 +388,15 @@ class TypeValue:
         return get_typevalue_repr(self)
 
 
+def list_or(values: Collection[str]) -> str:
+    "Return comma separated listing of values joined with ` or `"
+    if len(values) <= 2:
+        return ' or '.join(values)
+    copy = list(values)
+    copy[-1] = f'or {copy[-1]}'
+    return ', '.join(copy)
+
+
 class Parser:
     """Implementation of the type comment parser"""
     __slots__ = ('tokens', 'i')
@@ -358,7 +405,7 @@ class Parser:
         self.i = 0
 
     def parse_type_list(self) -> list[TypeValue]:
-        "Parse comma seperated type list"
+        "Parse comma separated type list"
         types = []
         while self.lookup() not in (')', ']'):
             typ = self.parse_type()
@@ -371,15 +418,14 @@ class Parser:
         return types
 
     def parse_union_list(self) -> list[TypeValue]:
-        "Parse | seperated union list"
+        "Parse | separated union list"
         types = []
         while True:
             typ = self.parse_type()
             types.append(typ)
             if self.lookup() != '|':
                 return types
-            else:
-                self.expect('|')
+            self.expect('|')
 
     def parse_single(self) -> TypeValue:
         "Parse single, does not look for | unions. Do not use directly."
@@ -390,42 +436,39 @@ class Parser:
             args = self.parse_type_list()
             self.expect(']')
             return TypeValue('', args)
-        t = self.expect_type(DottedName)
-        if t.text == 'Any':
+        token = self.expect_type(DottedName)
+        if token.text == 'Any':
             return TypeValue('Any')
-        elif t.text == 'mypy_extensions.NoReturn':
+        if token.text == 'mypy_extensions.NoReturn':
             return TypeValue('NoReturn')
-        elif t.text == 'typing.NoReturn':
+        if token.text == 'typing.NoReturn':
             return TypeValue('NoReturn')
-        elif t.text == 'Tuple':
+        if token.text == 'Tuple':
             self.expect('[')
             args = self.parse_type_list()
             self.expect(']')
-            return TypeValue(t.text, args)
-        elif t.text == 'Union':
+            return TypeValue(token.text, args)
+        if token.text == 'Union':
             self.expect('[')
             items = self.parse_type_list()
             self.expect(']')
             if len(items) == 1:
                 return items[0]
-            elif len(items) == 0:
+            if len(items) == 0:
                 self.fail('No items in Union')
-            else:
-                return TypeValue(t.text, items)
-        else:
-            if self.lookup() == '[':
-                self.expect('[')
-                args = self.parse_type_list()
-                self.expect(']')
-                if t.text == 'Optional' and len(args) == 1:
-                    return TypeValue('Union', [args[0], TypeValue('None')])
-                if t.text is None:
-                    t.text = 'None'
-                return TypeValue(t.text, args)
-            else:
-                if t.text is None:
-                    t.text = 'None'
-                return TypeValue(t.text)
+            return TypeValue(token.text, items)
+        if self.lookup() == '[':
+            self.expect('[')
+            args = self.parse_type_list()
+            self.expect(']')
+            if token.text == 'Optional' and len(args) == 1:
+                return TypeValue('Union', [args[0], TypeValue('None')])
+            if token.text is None:
+                token.text = 'None'
+            return TypeValue(token.text, args)
+        if token.text is None:
+            token.text = 'None'
+        return TypeValue(token.text)
 
     def parse_type(self) -> TypeValue:
         "Parse type including | unions"
@@ -464,10 +507,11 @@ class Parser:
         token = self.next()
         if not isinstance(token, token_type):
             if hasattr(token_type, '__iter__'):
-                expect_str = [cls.__name__ for cls in token_type]
+                assert isinstance(token_type, tuple)
+                expect_str = list_or([f'{cls.__name__!r}' for cls in token_type])
             else:
-                expect_str = token_type.__name__
-            self.fail(f'Expected {expect_str!r}, got {token}')
+                expect_str = f'{token_type.__name__!r}'
+            self.fail(f'Expected {expect_str}, got {token}')
         return token
 
     def lookup(self) -> str:
@@ -495,19 +539,15 @@ def get_annotation(annotation: dict[str, Any],
     try:
         def_tokens = tokenize_definition(annotation['line'], get_line)
     except ParseError:
-        print(f'Could tokenize definition\n{annotation = }')
+        print(f'Could not tokenize definition\n{annotation = }')
         raise
-    except EOFError:
-        raise ParseError('Reached End of File, expected end of definition')
-##    print(f'{def_tokens = }\n')
+    except EOFError as exc:
+        raise ParseError('Reached End of File, expected end of definition') from exc
 
     # Get the argument and return tokens from signature
     signature = annotation['signature']
     arg_tokens = [tokenize(arg) for arg in signature['arg_types']]
     return_tokens = tokenize(signature['return_type'])
-
-##    print(f'{arg_tokens = }\n')
-##    print(f'{return_tokens = }\n')
 
     # Find start of argument definition
     new_lines = ''
@@ -517,7 +557,7 @@ def get_annotation(annotation: dict[str, Any],
         if isinstance(token, ArgumentName):
             parser.back()
             break
-        elif token.text == ')':
+        if token.text == ')':
             parser.back()
             break
         assert token.text is not None, "Unreachable, End token is only null text token"
@@ -545,20 +585,17 @@ def get_annotation(annotation: dict[str, Any],
                     argparser.expect('*')
         elif isinstance(token, ArgumentName):
             argument += 1
-##        elif isinstance(token, End):
-##            parser.back()
-##            break
+        elif isinstance(token, End):
+            parser.back()
+            break
 
     arg_place = len(arg_tokens) - argument
-##    print(f'{arg_tokens = }\n{len(arg_tokens) = }\n{argument = }')
     if arg_place < 0:
         # Self or class argument does not require type so annotations are
         # not given
         for skip in range(-arg_place):
             skip_args.add(skip)
 
-##    print(f'{skip_args = }\n{arg_place = }\n')
-##    print(f'{parser.rest_tokens() = }\n')
 
     # Handle arguments
     argument = 0
@@ -566,6 +603,7 @@ def get_annotation(annotation: dict[str, Any],
         token = parser.next()
         if isinstance(token, Separator):
             if isinstance(token, EndSeparator):
+                assert token.text is not None
                 new_lines += token.text
             else:
                 new_lines += f'{token.text} '
@@ -576,22 +614,22 @@ def get_annotation(annotation: dict[str, Any],
         elif isinstance(token, ArgumentName):
             name = token.text
             type_text = ''
-##            print(f'{argument = }')
             if isinstance(parser.peek(), TypeDef):
                 parser.expect(':')
                 type_value = parser.parse_type()
-##                print(f'{token} has TypeDef')
-##                print(f'{type_value = }')
                 type_text = ': '+str(type_value)
-##                print(f'{type_text = }')
             elif argument not in skip_args:
                 type_value = Parser(arg_tokens[arg_place]).parse_type()
-##                print(f'{type_value = }')
                 type_text = ': '+str(type_value)
             if isinstance(parser.peek(), DefaultDef):
                 parser.expect('=')
-                type_value = parser.parse_type()
-                type_text += ' = ' + str(type_value)
+                type_text += ' = '
+                if isinstance(parser.peek(), EndSeparator):
+                    type_text += f'{parser.next().text}'
+                    type_text += ', '.join(map(str, parser.parse_type_list()))
+                    type_text += f'{parser.next().text}'
+                else:
+                    type_text += str(parser.parse_type())
             new_lines += f'{name}{type_text}'
             argument += 1
             arg_place += 1
@@ -599,7 +637,7 @@ def get_annotation(annotation: dict[str, Any],
             print('Found End token during argument parsing')
             parser.back()
             break
-##    print(f'{parser.rest_tokens() = }\n')
+
     # Handle the end
     if isinstance(parser.peek(), EndDefinition):
         parser.tokens = [ReturnTypeDef('->')] + return_tokens[:-1] + parser.rest_tokens()
@@ -615,6 +653,7 @@ def get_annotation(annotation: dict[str, Any],
         token = parser.next()
         if isinstance(token, End):
             break
+        assert token.text is not None
         new_lines += token.text
 
     return new_lines
@@ -625,29 +664,15 @@ def get_annotation(annotation: dict[str, Any],
 
 def run() -> None:
     "Run test of module"
-    annotation = {'func_name': 'idlemypyextension.suggest', 'line': 516, 'path': '/home/samuel/Desktop/Python/Tests/Idle extention/idlemypyextension/src/idlemypyextension/__init__.py', 'samples': 0, 'signature': {'arg_types': ['str', 'int'], 'return_type': 'None'}}
-##    annotation = {'func_name': 'idlemypyextension.get_msg_line', 'line': 319, 'path': '/home/samuel/Desktop/Python/Tests/Idle extention/idlemypyextension/src/idlemypyextension/__init__.py', 'samples': 0, 'signature': {'arg_types': ['int', 'str'], 'return_type': 'str'}}
-##    annotation = {'func_name': 'tokenize', 'line': 108, 'path': '/home/samuel/Desktop/Python/Tests/Idle extention/idlemypyextension/src/idlemypyextension/annotate.py', 'samples': 0, 'signature': {'arg_types': ['str'], 'return_type': 'typing:List[idlemypyextension.annotate.Token]'}}
-##    annotation = {'func_name': 'idlemypyextension.ensure_daemon_running', 'line': 492, 'path': '/home/samuel/Desktop/Python/Tests/Idle extention/idlemypyextension/src/idlemypyextension/__init__.py', 'samples': 0, 'signature': {'arg_types': ['bool'], 'return_type': 'bool'}}
-##    annotation = {'func_name': 'get_required_config', 'line': 45, 'path': '/home/samuel/Desktop/Python/Tests/Idle extention/idlemypyextension/src/idlemypyextension/__init__.py', 'samples': 0, 'signature': {'arg_types': ['typing.Dict[str, str]', 'typing.Dict[str, str]'], 'return_type': 'str'}}
-##    annotation = {'func_name': 'check_installed', 'line': 60, 'path': '/home/samuel/Desktop/Python/Tests/Idle extention/idlemypyextension/src/idlemypyextension/__init__.py', 'samples': 0, 'signature': {'arg_types': [], 'return_type': 'bool'}}
-    annotation = {'func_name': 'idlemypyextension.initial', 'line': 663, 'path': '/home/samuel/Desktop/Python/Tests/Idle extention/idlemypyextension/src/idlemypyextension/__init__.py', 'samples': 0, 'signature': {'arg_types': [], 'return_type': 'Tuple[Optional[str], str, int]'}}
-##    annotation = {'func_name': 'idlemypyextension.add_comments', 'line': 429, 'path': '/home/samuel/Desktop/Python/Tests/Idle extention/idlemypyextension/src/idlemypyextension/__init__.py', 'samples': 0, 'signature': {'arg_types': ['str', 'str'], 'return_type': 'typing.List[int]'}}
-##    annotation = {'func_name': 'idlemypyextension.get_pointers', 'line': 401, 'path': '/home/samuel/Desktop/Python/Tests/Idle extention/idlemypyextension/src/idlemypyextension/__init__.py', 'samples': 0, 'signature': {'arg_types': ['typing:List[typing.Dict[str, Union[int, str]]]'], 'return_type': 'Optional[typing.Dict[str, Union[int, str]]]'}}
-##    annotation = {'func_name': 'idlemypyextension.add_comment', 'line': 333, 'path': '/home/samuel/Desktop/Python/Tests/Idle extention/idlemypyextension/src/idlemypyextension/__init__.py', 'samples': 0, 'signature': {'arg_types': ['typing.Dict[str, Union[str, int]]', 'int'], 'return_type': 'bool'}}
-##    annotation = {'func_name': 'translate_file_given_coro', 'line': 168, 'path': '/home/samuel/Desktop/Python/Projects/Localization Translation Utility/auto_trans.py', 'samples': 0, 'signature': {'arg_types': ['Callable[[typing.Dict[str, Any], str, str], auto_trans:Awaitable[typing.Dict[str, str]]]', 'Tuple[typing.Dict[Any, Any], typing.Dict[Any, Any]]', 'typing.List[Tuple[str, str]]', 'str'], 'return_type': 'typing:Coroutine[Any, Any, typing.Coroutine[Any, Any, int]]'}}
-##    annotation = {'func_name': 'section_to_walk', 'line': 145, 'path': '/home/samuel/Desktop/Python/Projects/Localization Translation Utility/auto_trans.py', 'samples': 0, 'signature': {'arg_types': ['typing.List[str]'], 'return_type': 'typing:Tuple[Tuple[str, typing.List[str]], ...]'}}
-##    annotation = {'func_name': 'read', 'line': 129, 'path': '/home/samuel/Desktop/Python/Ports/OpenComputers/MineOS/Libraries/Proxy.py', 'samples': 0, 'signature': {'arg_types': ['io.IOBase', 'int'], 'return_type': 'Tuple[bool, int]'}}
-##    annotation = {'func_name': 'ClassType.__init__', 'line': 20, 'path': '/home/samuel/Desktop/Python/Tests/Idle extention/idlemypyextension/src/idlemypyextension/internal_types.py', 'samples': 0, 'signature': {'arg_types': ['str', 'Optional[idlemypyextension.internal_types:Sequence[idlemypyextension.internal_types.AbstractType]]'], 'return_type': 'None'}}
-    def get_line(line: int) -> str:
-        path = annotation['path']
-        assert isinstance(path, str), "Path must be string"
-        with open(path, 'r', encoding='utf-8') as files:
-            for line_no, line_text in enumerate(files):
-                if line_no == line-1:
-                    return line_text
-            raise EOFError
-    print(f'{get_annotation(annotation, get_line)!r}')
+##    def get_line(line: int) -> str:
+##        path = annotation['path']
+##        assert isinstance(path, str), "Path must be string"
+##        with open(path, 'r', encoding='utf-8') as files:
+##            for line_no, line_text in enumerate(files):
+##                if line_no == line-1:
+##                    return line_text
+##            raise EOFErrors
+##    print(f'{get_annotation(annotation, get_line)!r}')
 
 
 if __name__ == '__main__':

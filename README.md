@@ -50,6 +50,18 @@ If you add the `--show-column-numbers` flag to `daemon_flags`, when using the
 in a new line below the location of the mypy message that provided a column
 number, as long as that comment wouldn't break your file's indentation too much.
 
+If you add the `--show-error-codes` flag to `daemon_flags`, when using the
+"Type Check File" command, when it puts mypy's comments in your code, it will
+tell you what type of error that comment is. For example, it would change the
+error comment
+```python
+# types: error: Incompatible types in assignment (expression has type "str", variable has type "int")
+```
+to
+```python
+# types: assignment error: Incompatible types in assignment (expression has type "str", variable has type "int")
+```
+
 `search_wrap` toggles weather searching for next type comment will wrap
 around or not.
 
