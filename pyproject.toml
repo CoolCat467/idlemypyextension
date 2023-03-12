@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "idlemypyextension"
+version = "0.1.1"
+authors = [
+  { name="CoolCat467" },
+]
+description = "Mypy extension for Python IDLE"
+readme = {file = "README.md", content-type = "text/markdown"}
+license = {file = "LICENSE"}
+requires-python = ">=3.7"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3 :: Only",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Framework :: IDLE",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
+keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
+
+[project.urls]
+"Homepage" = "https://github.com/CoolCat467/idlemypyextension"
+"Source" = "https://github.com/CoolCat467/idlemypyextension"
+"Bug Tracker" = "https://github.com/CoolCat467/idlemypyextension/issues"
+
+[project.scripts]
+idlemypyextension = "idlemypyextension:check_installed"
+
+[tool.mypy]
+mypy_path = "src"
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+no_implicit_optional = true
+no_implicit_reexport = true
+show_column_numbers = true
+show_error_codes = true
+strict = true
+strict_equality = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+warn_unused_configs = true
+warn_unused_ignores = true
+
+[tool.black]
+line-length = 79
+target-version = ['py311']
