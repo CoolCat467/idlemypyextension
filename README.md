@@ -32,8 +32,7 @@ idlemypyextension works.
 
 ## Information on options
 `action_max_sec` controls how long an action is allowed to take at most,
-in seconds.
-Values under 5 will make no effect
+in seconds. Default is "None".
 
 For `daemon_flags`, see `mypy --help` for a list of valid flags.
 This extension sets the following flags to be able to work properly:
@@ -42,6 +41,8 @@ This extension sets the following flags to be able to work properly:
     --no-color-output
     --show-absolute-path
     --no-error-summary
+    --soft-error-limit=-1
+    --show-traceback
     --cache-dir="~/.idlerc/mypy"
 ```
 

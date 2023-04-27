@@ -11,10 +11,10 @@ from __future__ import annotations
 __title__ = "idlemypyextension"
 __author__ = "CoolCat467"
 __license__ = "GPLv3"
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __ver_major__ = 0
 __ver_minor__ = 1
-__ver_patch__ = 1
+__ver_patch__ = 2
 
 import json
 import math
@@ -259,7 +259,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
         "search_wrap": "True",
         "suggest_replace": "False",
         "timeout_mins": "30",
-        "action_max_sec": "40",
+        "action_max_sec": "None",
     }
     # Default key binds for configuration file
     bind_defaults = {
@@ -275,7 +275,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
     search_wrap = "True"
     suggest_replace = "False"
     timeout_mins = "30"
-    action_max_sec = "40"
+    action_max_sec = "None"
 
     # Class attributes
     idlerc_folder = os.path.expanduser(idleConf.userdir)
@@ -294,13 +294,14 @@ class idlemypyextension:  # pylint: disable=invalid-name
         if not os.path.exists(self.mypy_folder):
             os.mkdir(self.mypy_folder)
 
-        for attr_name in dir(self):
-            if attr_name.startswith("_"):
-                continue
-            if attr_name.endswith("_event"):
-                bind_name = "-".join(attr_name.split("_")[:-1]).lower()
-                self.text.bind(f"<<{bind_name}>>", getattr(self, attr_name))
-                # print(f'{attr_name} -> {bind_name}')
+        # IDLE has something that does this built-in
+        # for attr_name in dir(self):
+        #    if attr_name.startswith("_"):
+        #        continue
+        #    if attr_name.endswith("_event"):
+        #        bind_name = "-".join(attr_name.split("_")[:-1]).lower()
+        #        self.text.bind(f"<<{bind_name}>>", getattr(self, attr_name))
+        #        # print(f'{attr_name} -> {bind_name}')
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.editwin!r})"
@@ -330,20 +331,25 @@ class idlemypyextension:  # pylint: disable=invalid-name
 
     @property
     def flags(self) -> list[str]:
-        "Daemon server flags"
+        "Mypy Daemon flags"
         base = {
-            f"--cache-dir={self.mypy_folder}",
-            "--cache-fine-grained",
             "--hide-error-context",
             "--no-color-output",
             "--show-absolute-path",
             "--no-error-summary",
             "--soft-error-limit=-1",
             "--show-traceback",
+            f"--cache-dir={self.mypy_folder}",
+            # "--cache-fine-grained",
         }
         if self.daemon_flags == "None":
             return list(base)
-        return list(base | {s.strip() for s in self.daemon_flags.split(" ")})
+        extra = set()
+        for arg in self.daemon_flags.split(" "):
+            value = arg.strip()
+            if value:
+                extra.add(value)
+        return list(base | extra)
 
     @classmethod
     def ensure_bindings_exist(cls) -> bool:
@@ -524,6 +530,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
         self, target_filename: str, start_line: int, normal: str
     ) -> list[int]:
         "Add comments for target filename, return list of comments added"
+        assert self.files.filename is not None
         files = self.parse_comments(
             normal, os.path.abspath(self.files.filename), start_line
         )
@@ -596,7 +603,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
         return True
 
     def shutdown_dmypy_daemon_event(self, event: "Event[Any]") -> str:
-        "Shutdown the dmypy daemon"
+        "Shutdown the dmypy daemon event handler"
         # pylint: disable=unused-argument
         if not client.is_running(self.status_file):
             self.text.bell()
@@ -614,6 +621,19 @@ class idlemypyextension:  # pylint: disable=invalid-name
             return {"out": "", "err": "Error: Could not start mypy daemon"}
         flags = self.flags
         flags += [file]
+        # print(f"\n{__title__} DEBUG: check {flags = }\n")
+        command = " ".join(
+            [
+                "dmypy",
+                f"--status-file={self.status_file}",
+                "run",
+                f"--log-file={self.log_file}",
+                file,
+                "--",
+            ]
+            + self.flags
+        )
+        print(f"\n[{__title__}] DEBUG: {command = }")
         return client.run(
             self.status_file,
             flags=flags,
@@ -623,7 +643,9 @@ class idlemypyextension:  # pylint: disable=invalid-name
             export_types=True,
         )
 
-    def get_suggestion_text(self, annotation: dict[str, Any]) -> str | None:
+    def get_suggestion_text(
+        self, annotation: dict[str, Any]
+    ) -> tuple[str | None, int]:
         """Get suggestion text from annotation.
 
         Return None on error or no difference, text if different"""
@@ -634,7 +656,9 @@ class idlemypyextension:  # pylint: disable=invalid-name
         line = annotation["line"]
 
         try:
-            text = annotate.get_annotation(annotation, self.get_line)
+            text, line_count = annotate.get_annotation(
+                annotation, self.get_line
+            )
         except annotate.ParseError as ex:
             ex_text, ex_traceback = sys.exc_info()[1:]
             traceback.print_exception(
@@ -645,17 +669,20 @@ class idlemypyextension:  # pylint: disable=invalid-name
                 chain=True,
             )
             indent = get_line_indent(self.get_line(line))
-            return self.get_msg_line(
-                indent, f"Error generating suggestion: {ex}"
+            return (
+                self.get_msg_line(
+                    indent, f"Error generating suggestion: {ex}"
+                ),
+                1,
             )
 
         select_start = f"{line}.0"
-        line_end = line + len(text.splitlines())
+        line_end = line + line_count
         select_end = f"{line_end}.0"
 
         if text == self.text.get(select_start, select_end)[:-1]:
-            return None
-        return text
+            return None, line_count
+        return text, line_count
 
     def suggest(self, file: str, line: int) -> None:
         "Preform dmypy suggest"
@@ -699,14 +726,16 @@ class idlemypyextension:  # pylint: disable=invalid-name
         line = annotations[0]["line"]
 
         samples: dict[int, list[str]] = {}
+        line_count = 0
         for annotation in annotations:
             count = annotation["samples"]
-            text = self.get_suggestion_text(annotation)
+            text, lines = self.get_suggestion_text(annotation)
             if text is None:
                 continue
             if not count in samples:
                 samples[count] = []
             samples[count].append(text)
+            line_count += lines
 
         order = sorted(samples, reverse=True)
         lines = []
@@ -726,7 +755,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
             replace = False
 
         select_start = f"{line}.0"
-        line_end = line + len(text.splitlines())
+        line_end = line + line_count
         select_end = f"{line_end}.0"
 
         if not text or text == self.text.get(select_start, select_end)[:-1]:
@@ -765,7 +794,10 @@ class idlemypyextension:  # pylint: disable=invalid-name
         self.reload()
 
         # Get file we are checking
-        file: str = os.path.abspath(self.files.filename)
+        raw_filename: str | None = self.files.filename
+        if raw_filename is None:
+            return "break", None
+        file: str = os.path.abspath(raw_filename)
 
         # Remember where we started
         start_line_no: int = self.editwin.getlineno()
@@ -810,7 +842,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
         # Run mypy on open file
         response = self.check(file)
 
-        print(f"{__title__} DEBUG: type check {response = }")
+        print(f"\n[{__title__}] DEBUG: type check {response = }\n")
 
         normal = ""
         if "out" in response:
@@ -898,8 +930,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
         # pylint: disable=unused-argument
         self.reload()
 
-        root: Tk
-        root = self.text._root()  # pylint: disable=protected-access
+        root: TK = self.editwin.root
 
         # Get search engine singleton from root
         engine: searchengine.SearchEngine = searchengine.get(root)
@@ -927,10 +958,13 @@ class idlemypyextension:  # pylint: disable=invalid-name
         set_search_engine_params(engine, global_search_params)
         return "break"
 
+    # def close(self) -> None:
+    #    """Called when any idle editor window closes"""
+
 
 idlemypyextension.reload()
 
 if __name__ == "__main__":
     print(f"{__title__} v{__version__}\nProgrammed by {__author__}.\n")
     check_installed()
-##    self = idlemypyextension(get_fake_editwin())
+    # self = idlemypyextension(get_fake_editwin())

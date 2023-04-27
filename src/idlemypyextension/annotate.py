@@ -185,16 +185,17 @@ def get_line_indent(text: str, char: str = " ") -> int:
 
 
 def tokenize_definition(
-    line: int, get_line: Callable[[int], str]
-) -> list[Token]:
-    "Tokenize function definition"
+    start_line: int, get_line: Callable[[int], str]
+) -> tuple[list[Token], int]:
+    "Return list of Tokens and number of lines after start"
+    current_line_no = start_line
 
     def read_line() -> str:
         "Incremental wrapper for get_line"
-        nonlocal line
-        value = get_line(line)
+        nonlocal current_line_no
+        value = get_line(current_line_no)
         # print(f'read_line: {value!r}')
-        line += 1
+        current_line_no += 1
         return value
 
     hasdef = False  # Do we have a definition token?
@@ -359,7 +360,7 @@ def tokenize_definition(
     # print(tokens[-1])
     # print()
     tokens.append(End())
-    return tokens
+    return tokens, current_line_no - start_line
 
 
 def get_type_repr(name: str) -> str:
@@ -367,8 +368,10 @@ def get_type_repr(name: str) -> str:
     for seperator in (".", ":"):
         if seperator in name:
             module, text = name.split(seperator, 1)
-            if module in ("typing", "mypy_extensions") and text in BUILTINS:
-                return text.lower()
+            if module in ("typing", "mypy_extensions"):
+                if text in BUILTINS:
+                    return text.lower()
+                return text
     return name
 
 
@@ -601,17 +604,20 @@ class Parser:
 
 def get_annotation(
     annotation: dict[str, Any], get_line: Callable[[int], str]
-) -> str:
-    "Get annotation"
-    # print(f'{annotation = }\n')
+) -> tuple[str, int]:
+    "Return annotation and end line"
+    # print(f"[DEBUG] Annotate: {annotation = }\n")
 
     # Get definition tokens
     try:
-        def_tokens = tokenize_definition(annotation["line"], get_line)
+        def_tokens, line_count = tokenize_definition(
+            annotation["line"], get_line
+        )
     except ParseError:
         print(f"Could not tokenize definition\n{annotation = }")
         raise
     except EOFError as exc:
+        print(f"[ERROR] Annotate: {annotation = }\n")
         raise ParseError(
             "Reached End of File, expected end of definition"
         ) from exc
@@ -735,7 +741,7 @@ def get_annotation(
         assert token.text is not None
         new_lines += token.text
 
-    return new_lines
+    return new_lines, line_count
 
 
 def run(annotation: dict[str, str]) -> None:
