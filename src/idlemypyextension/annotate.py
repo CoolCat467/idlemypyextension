@@ -6,23 +6,23 @@
 
 # Extensively modified by CoolCat467
 
-# Extensively modified from https://github.com/dropbox/pyannotate/blob/master/pyannotate_tools/annotations/parse.py
+# Extensively modified from https://github.com/dropbox/pyannotate/blob/master/pyannotate_tools/annotations/parse.py # noqa
 
-## Pyannotate is licensed under the terms of the Apache License, Version 2.0,
-## reproduced below.
-##   Copyright (c) 2017 Dropbox, Inc.
-##
-##   Licensed under the Apache License, Version 2.0 (the "License");
-##   you may not use this file except in compliance with the License.
-##   You may obtain a copy of the License at
-##
-##       http://www.apache.org/licenses/LICENSE-2.0
-##
-##   Unless required by applicable law or agreed to in writing, software
-##   distributed under the License is distributed on an "AS IS" BASIS,
-##   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-##   See the License for the specific language governing permissions and
-##   limitations under the License.
+# Pyannotate is licensed under the terms of the Apache License, Version 2.0,
+# reproduced below.
+#   Copyright (c) 2017 Dropbox, Inc.
+#
+#   Licensed under the Apache License, Version 2.0 (the "License");
+#   you may not use this file except in compliance with the License.
+#   You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#   Unless required by applicable law or agreed to in writing, software
+#   distributed under the License is distributed on an "AS IS" BASIS,
+#   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#   See the License for the specific language governing permissions and
+#   limitations under the License.
 
 from __future__ import annotations
 
@@ -341,7 +341,7 @@ def tokenize_definition(
                 tokens.append(EndSeparator(tokens.pop().text))
             tokens.append(EndSeparator(string))
             # we have a new indent level
-            indent = get_line_indent(get_line(line))
+            indent = get_line_indent(get_line(current_line_no))
             tokens.append(EndSeparator(" " * indent))
         elif tok_name[token.type] == "COMMENT":
             # Remember comments as separators
@@ -599,7 +599,7 @@ class Parser:
 
     def rest_tokens(self) -> list[Token]:
         "Return all tokens not processed"
-        return self.tokens[self.i :]
+        return self.tokens[self.i : len(self.tokens)]  # noqa: E203
 
 
 def get_annotation(

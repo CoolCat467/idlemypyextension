@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "idlemypyextension"
-version = "0.1.1"
+version = "1.0.0"
 authors = [
   { name="CoolCat467" },
 ]
@@ -36,6 +36,9 @@ keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 
 [project.scripts]
 idlemypyextension = "idlemypyextension:check_installed"
+
+[mypy]
+plugins = ["trio_typing.plugin"]
 
 [tool.mypy]
 mypy_path = "src"
