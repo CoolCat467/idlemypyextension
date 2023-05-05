@@ -23,6 +23,7 @@ import re
 import sys
 import traceback
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import partial, wraps
 from idlelib import search, searchengine
 from idlelib.config import idleConf
@@ -30,7 +31,8 @@ from idlelib.format import FormatRegion
 from idlelib.iomenu import IOBinding
 from idlelib.multicall import MultiCallCreator
 from idlelib.pyshell import PyShellEditorWindow, PyShellFileList
-from tkinter import Event, Tk, messagebox
+from idlelib.undo import UndoDelegator
+from tkinter import Event, Text, Tk, messagebox
 from typing import Any, Final, TypeVar, cast
 
 from idlemypyextension import annotate, tktrio
@@ -81,7 +83,7 @@ def check_installed() -> bool:
     if not hasattr(module, __title__):
         print(
             f"ERROR: Somehow, {__title__} was installed improperly, "
-            "no {__title__} class found in module. Please report "
+            f"no {__title__} class found in module. Please report "
             "this on github.",
             file=sys.stderr,
         )
@@ -152,11 +154,11 @@ def undo_block(func: F) -> F:
         self: "idlemypyextension", *args: Any, **kwargs: Any
     ) -> Any:
         "Wrap function in start and stop undo events."
-        self.text.undo_block_start()
+        self.undo.undo_block_start()
         try:
             return func(self, *args, **kwargs)
         finally:
-            self.text.undo_block_stop()
+            self.undo.undo_block_stop()
 
     return cast(F, undo_wrapper)
 
@@ -197,6 +199,19 @@ def set_search_engine_params(
             getattr(engine, f"{name}var").set(data[name])
 
 
+@dataclass(slots=True)
+class Message:
+    """Represents one message from mypy"""
+
+    file: str
+    line: int
+    message: str
+    line_end: int | None = None
+    column: int = 0
+    column_end: int | None = None
+    msg_type: str = "unrecognized"
+
+
 # Important weird: If event handler function returns 'break',
 # then it prevents other bindings of same event type from running.
 # If returns None, normal and others are also run.
@@ -207,6 +222,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
     __slots__ = (
         "editwin",
         "text",
+        "undo",
         "formatter",
         "files",
         "flist",
@@ -265,9 +281,10 @@ class idlemypyextension:  # pylint: disable=invalid-name
     log_file = os.path.join(mypy_folder, "log.txt")
 
     def __init__(self, editwin: PyShellEditorWindow) -> None:
-        "Initialize the settings for this extension."
+        """Initialize the settings for this extension."""
         self.editwin: PyShellEditorWindow = editwin
-        self.text: MultiCallCreator = editwin.text
+        self.text: Text = editwin.text
+        self.undo: UndoDelegator = editwin.undo
         self.formatter: FormatRegion = editwin.fregion
         self.flist: PyShellFileList = editwin.flist
         self.files: IOBinding = editwin.io
@@ -410,14 +427,12 @@ class idlemypyextension:  # pylint: disable=invalid-name
         "Return True if comment for message already exists on line."
         return self.get_msg_line(0, text) in self.get_line(line - 1)
 
-    def add_comment(
-        self, message: dict[str, str | int], max_exist_up: int = 0
-    ) -> bool:
+    def add_comment(self, message: Message, max_exist_up: int = 0) -> bool:
         "Return True if added new comment, False if already exists."
         # Get line and message from output
-        # file = str(message['file'])
-        line = int(message["line"])
-        msg = str(message["message"])
+        # file = message.file
+        line = message.line
+        msg = message.message
 
         # If there is already a comment from us there, ignore that line.
         # +1-1 is so at least up by 1 is checked, range(0) = []
@@ -443,11 +458,11 @@ class idlemypyextension:  # pylint: disable=invalid-name
     @staticmethod
     def parse_comments(
         comments: str, default_file: str, default_line: int
-    ) -> dict[str, list[dict[str, str | int]]]:
-        "Get list of message dictionaries from mypy output."
+    ) -> dict[str, list[Message]]:
+        """Get list of message dictionaries from mypy output."""
         error_type = re.compile(r"  \[[a-z\-]+\]\s*$")
 
-        files: dict[str, list[dict[str, str | int]]] = {}
+        files: dict[str, list[Message]] = {}
         for comment in comments.splitlines():
             if not comment.strip():
                 continue
@@ -456,12 +471,12 @@ class idlemypyextension:  # pylint: disable=invalid-name
             line_end = default_line
             col = 0
             col_end = 0
-            mtype = "unrecognized"
+            msg_type = "unrecognized"
 
             if comment.count(": ") < 2:
                 text = comment
             else:
-                where, mtype, text = comment.split(": ", 2)
+                where, msg_type, text = comment.split(": ", 2)
 
                 position = where.split(":")
 
@@ -481,28 +496,29 @@ class idlemypyextension:  # pylint: disable=invalid-name
             comment_type = error_type.search(text)
             if comment_type is not None:
                 text = text[: comment_type.start()]
-                mtype = f"{comment_type.group(0)[3:-1]} {mtype}"
+                msg_type = f"{comment_type.group(0)[3:-1]} {msg_type}"
 
-            message: dict[str, str | int] = {
-                "file": filename,
-                "line": line,
-                "column": col,
-                "line_end": line_end,
-                "column_end": col_end,
-                "type": mtype,
-                "message": f"{mtype}: {text}",
-            }
+            message = Message(
+                file=filename,
+                line=line,
+                message=f"{msg_type}: {text}",
+                column=col,
+                line_end=line_end,
+                column_end=col_end,
+                msg_type=msg_type,
+            )
 
             if filename not in files:
                 files[filename] = []
             files[filename].append(message)
         return files
 
-    def get_pointers(
-        self, messages: list[dict[str, int | str]]
-    ) -> dict[str, int | str] | None:
-        "Return message pointing to message column position"
-        line = int(messages[0]["line"]) + 1
+    def get_pointers(self, messages: list[Message]) -> Message | None:
+        """Return message pointing to multiple messages all on the same line
+
+        Messages must all be on the same line and be in the same file"""
+        line = messages[0].line
+        file = messages[0].file
 
         # Figure out line intent
         line_text = self.get_line(line)
@@ -513,9 +529,15 @@ class idlemypyextension:  # pylint: disable=invalid-name
         lastcol = len(self.comment) + indent + 1
 
         for message in messages:
-            start = int(message["column"])
-            end = int(message.get("column_end", start + lastcol)) - lastcol
-            for col in range(start, end + 1):
+            if message.line != line:
+                raise ValueError(f"Message `{message}` not on line `{line}`")
+            if message.file != file:
+                raise ValueError(f"Message `{message}` not in file `{file}`")
+            if message.column_end is None:
+                end = message.column
+            else:
+                end = message.column_end - lastcol
+            for col in range(message.column, end + 1):
                 columns.add(col)
 
         new_line = ""
@@ -529,26 +551,25 @@ class idlemypyextension:  # pylint: disable=invalid-name
         if not new_line.strip():
             return None
 
-        return {"line": line, "message": new_line}
+        return Message(file=file, line=line + 1, message=new_line)
 
+    @undo_block
     def add_comments(
         self, target_filename: str, start_line: int, normal: str
     ) -> list[int]:
-        "Add comments for target filename, return list of comments added"
+        """Add comments for target filename, return list of comments added"""
         assert self.files.filename is not None
         files = self.parse_comments(
             normal, os.path.abspath(self.files.filename), start_line
         )
 
         # Only handling messages for target filename
-        line_data: dict[int, list[dict[str, Any]]] = {}
+        line_data: dict[int, list[Message]] = {}
         if target_filename in files:
             for message in files[target_filename]:
-                line = message["line"]
-                assert isinstance(line, int), "Line must be int"
-                if line not in line_data:
-                    line_data[line] = []
-                line_data[line].append(message)
+                if message.line not in line_data:
+                    line_data[message.line] = []
+                line_data[message.line].append(message)
 
         line_order: list[int] = list(sorted(line_data, reverse=True))
         first: int = line_order[-1] if line_order else start_line
@@ -559,14 +580,13 @@ class idlemypyextension:  # pylint: disable=invalid-name
 
         for filename in {f for f in files if f != target_filename}:
             line_data[first].append(
-                {
-                    "file": target_filename,
-                    "line": first,
-                    "column": 0,
-                    "column_end": 0,
-                    "type": "note",
-                    "message": f"Another file has errors: {filename}",
-                }
+                Message(
+                    file=target_filename,
+                    line=first,
+                    message=f"note: Another file has errors: {filename}",
+                    column_end=0,
+                    msg_type="note",
+                )
             )
 
         comments = []
@@ -583,6 +603,21 @@ class idlemypyextension:  # pylint: disable=invalid-name
                 if self.add_comment(message, total):
                     comments.append(line)
         return comments
+
+    @undo_block
+    def add_errors(self, file: str, start_line: int, errors: str) -> None:
+        """Add errors to file"""
+        lines = errors.splitlines()
+        lines[0] = f"Error running mypy: {lines[0]}"
+        for message in reversed(lines):
+            self.add_comment(
+                Message(
+                    file=file,
+                    line=start_line,
+                    message=message,
+                ),
+                len(lines),
+            )
 
     def ask_save_dialog(self) -> bool:
         "Ask to save dialog stolen from idlelib.runscript.ScriptBinding"
@@ -707,27 +742,23 @@ class idlemypyextension:  # pylint: disable=invalid-name
             )
         # print(f'{__title__} DEBUG: suggest {response = }')
 
+        normal = ""
         errors = ""
         if "error" in response:
             errors += response["error"]
         if "err" in response:
+            if errors:
+                errors += "\n"
             errors += response["err"]
+        if "stderr" in response:
+            if normal:
+                normal += "\n"
+            normal += response["stderr"]
 
         # Display errors
         if errors:
-            lines = errors.splitlines()
-            lines[0] = f"Error running mypy: {lines[0]}"
-            self.text.undo_block_start()
-            for message in reversed(lines):
-                self.add_comment(
-                    {
-                        "file": file,
-                        "line": line,
-                        "message": message,
-                    },
-                    len(lines),
-                )
-            self.text.undo_block_stop()
+            # Add mypy errors
+            self.add_errors(file, self.editwin.getlineno(), errors)
 
             self.text.bell()
             return
@@ -769,25 +800,25 @@ class idlemypyextension:  # pylint: disable=invalid-name
         line_end = line + line_count
         select_end = f"{line_end}.0"
 
-
         if not text or text == self.text.get(select_start, select_end)[:-1]:
             # Bell to let user know happened, just nothing to do
             self.editwin.gotoline(line)
             self.text.bell()
             return
 
-        self.text.undo_block_start()
-
-        if replace:
-            self.text.delete(select_start, select_end)
-        elif "Error generating suggestion: " not in text:
+        if not replace and "Error generating suggestion: " not in text:
             text = "\n".join(f"##{line}" for line in text.splitlines())
         text += "\n"
 
-        self.text.insert(select_start, text, None)
-        
-        self.text.undo_block_stop()
-        
+        self.undo.undo_block_start()
+        try:
+            if replace:
+                self.text.delete(select_start, select_end)
+
+            self.text.insert(select_start, text, ())
+        finally:
+            self.undo.undo_block_stop()
+
         self.editwin.gotoline(line)
         self.text.bell()
 
@@ -809,13 +840,13 @@ class idlemypyextension:  # pylint: disable=invalid-name
 
         if not _HAS_MYPY:
             self.add_comment(
-                {
-                    "file": file,
-                    "line": start_line_no,
-                    "message": "Could not import mypy. "
+                Message(
+                    file=file,
+                    line=start_line_no,
+                    message="Could not import mypy. "
                     "Please install mypy and restart IDLE "
                     + "to use this extension.",
-                },
+                ),
                 start_line_no,
             )
 
@@ -882,30 +913,14 @@ class idlemypyextension:  # pylint: disable=invalid-name
             if normal:
                 normal += "\n"
             normal += response["stderr"]
-        
-        self.text.undo_block_start()
-
-        if errors:
-            lines = errors.splitlines()
-            lines[0] = f"Error running mypy: {lines[0]}"
-            
-            for message in reversed(lines):
-                self.add_comment(
-                    {
-                        "file": file,
-                        "line": self.editwin.getlineno(),
-                        "message": message,
-                    },
-                    len(lines),
-                )
-
-            return "break"
 
         if normal:
             # Add code comments
             self.add_comments(file, self.editwin.getlineno(), normal)
-        
-        self.text.undo_block_stop()
+
+        if errors:
+            # Add mypy errors
+            self.add_errors(file, self.editwin.getlineno(), errors)
 
         # Make bell sound so user knows we are done,
         # as it freezes a bit while mypy looks at the file
@@ -956,7 +971,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
 
         # Apply changes
         self.text.delete("0.0", eof_idx)
-        self.text.insert("0.0", chars, None)
+        self.text.insert("0.0", chars, ())
         return "break"
 
     @undo_block
@@ -1004,7 +1019,7 @@ def get_fake_editwin(root_tk: Tk) -> PyShellEditorWindow:
     "Get fake edit window for testing"
     from idlelib.pyshell import PyShellEditorWindow
 
-    class FakeEditWindow(PyShellEditorWindow):  # type: ignore[misc]
+    class FakeEditWindow(PyShellEditorWindow):  # type: ignore[misc,unused-ignore]
         "FakeEditWindow for testing"
 
         def __init__(self) -> None:
@@ -1014,11 +1029,15 @@ def get_fake_editwin(root_tk: Tk) -> PyShellEditorWindow:
 
         class _FakeText(Text):
             "Make bind do nothing"
+
+            def __init__(self) -> None:
+                return
+
             bind = lambda x, y: None  # type: ignore[assignment]  # noqa
             root = root_tk
-            close = None
+            close = None  # type: ignore[var-annotated]
 
-        text = _FakeText
+        text = _FakeText()
         fregion = FormatRegion
         flist = PyShellFileList
         io = IOBinding

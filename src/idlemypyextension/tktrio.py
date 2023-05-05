@@ -12,18 +12,18 @@ __version__ = "0.0.0"
 
 import tkinter as tk
 import weakref
-from enum import IntEnum
+from enum import IntEnum, auto
 from functools import partial, wraps
 from queue import Queue
 from tkinter import messagebox
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, TypeGuard
 
 import trio
-from outcome import Outcome
+from outcome import Outcome, Value
 
 
 def install_protocol_override(
-    root: tk.Tk,
+    root: tk.Wm,
     override: Callable[
         [
             str | None,
@@ -46,18 +46,18 @@ def install_protocol_override(
     root.protocol = new_protocol  # type: ignore[assignment]
 
 
-def uninstall_protocol_override(root: tk.Tk) -> None:
+def uninstall_protocol_override(root: tk.Wm) -> None:
     """Uninstall protocol override if it exists"""
-    if hasattr(root.wm_protocol, "__wrapped__"):
-        root.protocol = root.protocol.__wrapped__  # type: ignore
+    if hasattr(root.protocol, "__wrapped__"):
+        root.protocol = root.protocol.__wrapped__  # type: ignore[assignment]
 
 
 class RunStatus(IntEnum):
     """Enum for trio run status"""
 
-    NO_TASK = 0
-    TRIO_RUNNING = 1
-    TRIO_RUNNING_CANCELED = 2
+    NO_TASK = auto()
+    TRIO_RUNNING = auto()
+    TRIO_RUNNING_CANCELED = auto()
 
 
 def evil_does_trio_have_runner() -> bool:
@@ -74,6 +74,16 @@ def evil_does_trio_have_runner() -> bool:
     return hasattr(global_run_context, "runner")
 
 
+class _Tk_WM_Misc_Subclass(tk.Misc, tk.Wm):
+    """Subclass of both tkinter Misc and tkinter Wm"""
+
+
+def is_tk_wm_and_misc_subclass(
+    val: tk.Tk | tk.BaseWidget | tk.Wm | tk.Misc,
+) -> TypeGuard[_Tk_WM_Misc_Subclass]:
+    return isinstance(val, tk.Misc) and isinstance(val, tk.Wm)
+
+
 class TkTrioRunner:
     """Tk Trio Runner - Run Trio on top of Tkinter's main loop"""
 
@@ -87,7 +97,11 @@ class TkTrioRunner:
         "__weakref__",
     )
 
-    def __new__(cls, root: tk.Tk, *args: Any, **kwargs: Any) -> "TkTrioRunner":
+    def __new__(
+        cls, root: tk.Misc, *args: Any, **kwargs: Any
+    ) -> "TkTrioRunner":
+        if not is_tk_wm_and_misc_subclass(root):
+            raise ValueError("Must be subclass of both tk.Misc and tk.Wm")
         ref = getattr(root, "__trio__", None)
         if ref is not None:
             obj = ref()
@@ -96,8 +110,12 @@ class TkTrioRunner:
         return super(TkTrioRunner, cls).__new__(cls)
 
     def __init__(
-        self, root: tk.Tk, restore_close: Callable[[], None] | None = None
+        self,
+        root: tk.Misc | tk.Wm,
+        restore_close: Callable[[], None] | None = None,
     ) -> None:
+        if not is_tk_wm_and_misc_subclass(root):
+            raise ValueError("Must be subclass of both tk.Misc and tk.Wm")
         if (
             hasattr(root, "__trio__")
             and getattr(root, "__trio__", lambda: None)() is self
@@ -144,15 +162,32 @@ class TkTrioRunner:
         self.run_status = RunStatus.TRIO_RUNNING
         self.cancel_scope = trio.CancelScope()
 
-        async def wrap_in_cancel() -> Any:
-            with self.cancel_scope:
-                return await function()
+        @trio.lowlevel.disable_ki_protection
+        async def wrap_in_cancel(is_evil: bool) -> Any:
+            value = None
+            try:
+                with self.cancel_scope:
+                    value = await function()
+            finally:
+                if is_evil:
+                    self.call_on_trio_done(Value(value))
+            return value
 
         if evil_does_trio_have_runner():
-            raise RuntimeError("Trio is already running from somewhere else!")
+            self.run_status = RunStatus.NO_TASK
+            self.show_warning_trio_already_running()
+            return
+            # trio.lowlevel.spawn_system_task(
+            #     wrap_in_cancel, True,
+            # )
+            # return
+            # # self.run_status = RunStatus.NO_TASK
+            # # # Maybe look into using trio.lowlevel.spawn_system_task
+            # # raise RuntimeError("Trio is already running from somewhere else!")
 
         trio.lowlevel.start_guest_run(
             wrap_in_cancel,
+            False,
             run_sync_soon_threadsafe=self.schedule_task,
             done_callback=self.call_on_trio_done,
         )
@@ -204,13 +239,18 @@ class TkTrioRunner:
             name, self.get_del_window_proto(new_protocol)
         )
 
+    def show_warning_trio_already_running(self) -> None:
+        """Show warning that trio is already running"""
+        messagebox.showerror(
+            title="Error: Trio is already running",
+            message="Trio is already running from somewhere else, "
+            "please try again later.",
+            parent=self.root,
+        )
+
     def ask_ok_to_cancel(self) -> bool:
         """Ask if it is ok to cancel current task"""
-        msg = (
-            "Only one async task at once\n"
-            + 5 * " "
-            + "OK to Cancel Current Task?"
-        )
+        msg = "Only one async task at once\n" + "OK to Cancel Current Task?"
         confirm: bool = messagebox.askokcancel(
             title="Cancel Before New Task",
             message=msg,
