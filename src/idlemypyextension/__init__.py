@@ -29,7 +29,6 @@ from idlelib import search, searchengine
 from idlelib.config import idleConf
 from idlelib.format import FormatRegion
 from idlelib.iomenu import IOBinding
-from idlelib.multicall import MultiCallCreator
 from idlelib.pyshell import PyShellEditorWindow, PyShellFileList
 from idlelib.undo import UndoDelegator
 from tkinter import Event, Text, Tk, messagebox
@@ -1019,7 +1018,7 @@ def get_fake_editwin(root_tk: Tk) -> PyShellEditorWindow:
     "Get fake edit window for testing"
     from idlelib.pyshell import PyShellEditorWindow
 
-    class FakeEditWindow(PyShellEditorWindow):  # type: ignore[misc,unused-ignore]
+    class FakeEditWindow(PyShellEditorWindow):  # type: ignore[misc]
         "FakeEditWindow for testing"
 
         def __init__(self) -> None:
@@ -1035,7 +1034,7 @@ def get_fake_editwin(root_tk: Tk) -> PyShellEditorWindow:
 
             bind = lambda x, y: None  # type: ignore[assignment]  # noqa
             root = root_tk
-            close = None  # type: ignore[var-annotated]
+            close = None
 
         text = _FakeText()
         fregion = FormatRegion

@@ -49,7 +49,7 @@ def install_protocol_override(
 def uninstall_protocol_override(root: tk.Wm) -> None:
     """Uninstall protocol override if it exists"""
     if hasattr(root.protocol, "__wrapped__"):
-        root.protocol = root.protocol.__wrapped__  # type: ignore[assignment]
+        root.protocol = root.protocol.__wrapped__  # type: ignore
 
 
 class RunStatus(IntEnum):
@@ -181,9 +181,6 @@ class TkTrioRunner:
             #     wrap_in_cancel, True,
             # )
             # return
-            # # self.run_status = RunStatus.NO_TASK
-            # # # Maybe look into using trio.lowlevel.spawn_system_task
-            # # raise RuntimeError("Trio is already running from somewhere else!")
 
         trio.lowlevel.start_guest_run(
             wrap_in_cancel,
