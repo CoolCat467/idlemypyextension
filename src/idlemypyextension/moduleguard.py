@@ -14,7 +14,10 @@ import os
 import sys
 from collections.abc import Iterable
 from types import TracebackType
-from typing import Self
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 
 def does_path_interfere(

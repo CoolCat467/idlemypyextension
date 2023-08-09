@@ -196,7 +196,7 @@ class TkTrioRunner:
 
         self.cancel_scope = trio.CancelScope()
 
-        @trio.lowlevel.disable_ki_protection
+        @trio.lowlevel.disable_ki_protection  # type: ignore[misc]
         async def wrap_in_cancel(is_evil: bool) -> Any:
             value = None
             try:
@@ -337,7 +337,7 @@ class TkTrioRunner:
             return None
 
         if self.run_status != RunStatus.NO_TASK:
-            return None
+            raise RuntimeError("Invalid run status")
 
         # If we have not installed the protocol override,
         if not self.installed_proto_override:
