@@ -42,6 +42,12 @@ idlemypyextension = "idlemypyextension:check_installed"
 [tool.setuptools.package-data]
 sanescansrv = ["py.typed"]
 
+[tool.pytest.ini_options]
+addopts = "--cov-report term-missing --cov=idlemypyextension"
+testpaths = [
+    "tests",
+]
+
 [tool.mypy]
 mypy_path = "src"
 check_untyped_defs = true
@@ -139,6 +145,13 @@ legacy_tox_ini = """
     [testenv]
     setenv =
         PYTHONPATH = {toxinidir}
+
+    [testenv:pytest]
+    deps =
+        pytest
+        pytest-cov
+        pytest-trio
+    commands = pytest --basetemp={envtmpdir}
 
     [testenv:mypy]
     deps =
