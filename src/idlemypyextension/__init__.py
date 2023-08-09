@@ -1,8 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# Idle Type Check - Use mypy to type check and add comments to open file
-
-"Type Check IDLE Extension"
+"""Type Check IDLE Extension."""
 
 # Programmed by CoolCat467
 
@@ -11,7 +7,7 @@ from __future__ import annotations
 __title__ = "idlemypyextension"
 __author__ = "CoolCat467"
 __license__ = "GPLv3"
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __ver_major__ = 1
 __ver_minor__ = 0
 __ver_patch__ = 0
@@ -32,7 +28,7 @@ from idlelib.iomenu import IOBinding
 from idlelib.pyshell import PyShellEditorWindow, PyShellFileList
 from idlelib.undo import UndoDelegator
 from tkinter import Event, Text, Tk, messagebox
-from typing import Any, Final, TypeVar, cast
+from typing import Any, ClassVar, Final, TypeVar, cast
 
 from idlemypyextension import annotate, tktrio
 
@@ -42,15 +38,24 @@ ACTION_TIMEOUT_MIN: Final = 5
 _HAS_MYPY = True
 try:
     from idlemypyextension import client
+
+    # Client imports lots of things from mypy
 except ImportError:
     print(f"{__file__}: Mypy not installed!")
     _HAS_MYPY = False
 
 
+def debug(message: str) -> None:
+    """Print debug message."""
+    # TODO: Censor username
+    print(f"\n[{__title__}] DEBUG: {message}")
+
+
 def get_required_config(
-    values: dict[str, str], bind_defaults: dict[str, str]
+    values: dict[str, str],
+    bind_defaults: dict[str, str],
 ) -> str:
-    "Get required configuration file data"
+    """Get required configuration file data."""
     config = ""
     # Get configuration defaults
     settings = "\n".join(
@@ -70,7 +75,7 @@ def get_required_config(
 
 
 def check_installed() -> bool:
-    "Make sure extension installed."
+    """Make sure extension installed."""
     # Get list of system extensions
     extensions = list(idleConf.defaultCfg["extensions"])
     ex_defaults = idleConf.defaultCfg["extensions"].file
@@ -92,7 +97,8 @@ def check_installed() -> bool:
 
     # Get extension class keybinding defaults
     required_config = get_required_config(
-        getattr(cls, "values", {}), getattr(cls, "bind_defaults", {})
+        getattr(cls, "values", {}),
+        getattr(cls, "bind_defaults", {}),
     )
 
     # If this extension not in there,
@@ -101,7 +107,7 @@ def check_installed() -> bool:
         print(f"{__title__} not in system registered extensions!")
         print(
             f"Please run the following command to add {__title__} "
-            + "to system extensions list.\n"
+            + "to system extensions list.\n",
         )
         # Make sure line-breaks will go properly in terminal
         add_data = required_config.replace("\n", "\\n")
@@ -115,19 +121,19 @@ def check_installed() -> bool:
 
 
 def get_line_selection(line: int) -> tuple[str, str]:
-    "Get selection strings for given line"
+    """Get selection strings for given line."""
     return f"{line}.0", f"{line+1}.0"
 
 
 # Stolen from idlelib.searchengine
 def get_line_col(index: str) -> tuple[int, int]:
-    "Return (line, col) tuple of integers from 'line.col' string."
+    """Return (line, col) tuple of integers from 'line.col' string."""
     line, col = map(int, index.split(".", 1))  # Fails on invalid index
     return line, col
 
 
 def get_line_indent(text: str, char: str = " ") -> int:
-    "Return line indent."
+    """Return line indent."""
     for idx, cur in enumerate(text.split(char)):
         if cur != "":
             return idx
@@ -135,7 +141,10 @@ def get_line_indent(text: str, char: str = " ") -> int:
 
 
 def ensure_section_exists(section: str) -> bool:
-    "Ensure section exists in user extensions configuration, return if edited"
+    """Ensure section exists in user extensions configuration/.
+
+    Returns True if edited.
+    """
     if section not in idleConf.GetSectionList("user", "extensions"):
         idleConf.userCfg["extensions"].AddSection(section)
         return True
@@ -146,13 +155,15 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 
 def undo_block(func: F) -> F:
-    "Mark block of edits as a single undo block."
+    """Mark block of edits as a single undo block."""
 
     @wraps(func)
     def undo_wrapper(
-        self: "idlemypyextension", *args: Any, **kwargs: Any
+        self: idlemypyextension,
+        *args: Any,
+        **kwargs: Any,
     ) -> Any:
-        "Wrap function in start and stop undo events."
+        """Wrap function in start and stop undo events."""
         self.undo.undo_block_start()
         try:
             return func(self, *args, **kwargs)
@@ -163,15 +174,20 @@ def undo_block(func: F) -> F:
 
 
 def ensure_values_exist_in_section(
-    section: str, values: dict[str, str]
+    section: str,
+    values: dict[str, str],
 ) -> bool:
-    """For each key in values, make sure key exists. Return if edited
+    """For each key in values, make sure key exists. Return if edited.
 
-    If not, create and set to value."""
+    If not, create and set to value.
+    """
     need_save = False
     for key, default in values.items():
         value = idleConf.GetOption(
-            "extensions", section, key, warn_on_default=False
+            "extensions",
+            section,
+            key,
+            warn_on_default=False,
         )
         if value is None:
             idleConf.SetOption("extensions", section, key, default)
@@ -182,7 +198,7 @@ def ensure_values_exist_in_section(
 def get_search_engine_params(
     engine: searchengine.SearchEngine,
 ) -> dict[str, str | bool]:
-    "Get current search engine parameters"
+    """Get current search engine parameters."""
     return {
         name: getattr(engine, f"{name}var").get()
         for name in ("pat", "re", "case", "word", "wrap", "back")
@@ -190,9 +206,10 @@ def get_search_engine_params(
 
 
 def set_search_engine_params(
-    engine: searchengine.SearchEngine, data: dict[str, str | bool]
+    engine: searchengine.SearchEngine,
+    data: dict[str, str | bool],
 ) -> None:
-    "Get current search engine parameters"
+    """Get current search engine parameters."""
     for name in ("pat", "re", "case", "word", "wrap", "back"):
         if name in data:
             getattr(engine, f"{name}var").set(data[name])
@@ -200,7 +217,7 @@ def set_search_engine_params(
 
 @dataclass(slots=True)
 class Message:
-    """Represents one message from mypy"""
+    """Represents one message from mypy."""
 
     file: str
     line: int
@@ -216,8 +233,9 @@ class Message:
 # If returns None, normal and others are also run.
 
 
-class idlemypyextension:  # pylint: disable=invalid-name
-    "Add comments from mypy to an open program."
+class idlemypyextension:  # noqa: N801
+    """Add comments from mypy to an open program."""
+
     __slots__ = (
         "editwin",
         "text",
@@ -228,7 +246,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
         "triorun",
     )
     # Extend the file and format menus.
-    menudefs = [
+    menudefs: ClassVar = [
         (
             "edit",
             [
@@ -247,7 +265,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
         ("run", [("Shutdown dmypy daemon", "<<shutdown-dmypy-daemon>>")]),
     ]
     # Default values for configuration file
-    values = {
+    values: ClassVar = {
         "enable": "True",
         "enable_editor": "True",
         "enable_shell": "False",
@@ -258,7 +276,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
         "action_max_sec": "None",
     }
     # Default key binds for configuration file
-    bind_defaults = {
+    bind_defaults: ClassVar = {
         "type-check": "<Alt-Key-t>",
         "suggest-signature": "<Alt-Key-s>",
         "remove-type-comments": "<Alt-Shift-Key-T>",
@@ -307,23 +325,24 @@ class idlemypyextension:  # pylint: disable=invalid-name
     def get_async(
         self,
         name: str,
-    ) -> Callable[["Event[Any]"], str]:
-        """Get sync callable to run async function"""
+    ) -> Callable[[Event[Any]], str]:
+        """Get sync callable to run async function."""
         async_function = getattr(self, name)
 
         @wraps(async_function)
-        def call_trio(event: "Event[Any]") -> str:
+        def call_trio(event: Event[Any]) -> str:
             self.triorun(partial(async_function, event))
             return "break"
 
         return call_trio
 
     def __repr__(self) -> str:
+        """Return representation of self."""
         return f"{self.__class__.__name__}({self.editwin!r})"
 
     @property
     def daemon_timeout(self) -> int:
-        "Daemon timeout"
+        """Daemon timeout."""
         if self.timeout_mins == "None":
             return DAEMON_TIMEOUT_MIN * 60
         try:
@@ -336,7 +355,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
 
     @property
     def action_timeout(self) -> int | None:
-        "Action timeout"
+        """Action timeout."""
         if self.action_max_sec == "None":
             return None
         try:
@@ -346,7 +365,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
 
     @property
     def flags(self) -> list[str]:
-        "Mypy Daemon flags"
+        """Mypy Daemon flags."""
         base = {
             "--hide-error-context",
             "--no-color-output",
@@ -355,6 +374,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
             "--soft-error-limit=-1",
             "--show-traceback",
             f"--cache-dir={self.mypy_folder}",
+            # f"--log-file={self.log_file}",
             # "--cache-fine-grained",
         }
         if self.daemon_flags == "None":
@@ -370,7 +390,8 @@ class idlemypyextension:  # pylint: disable=invalid-name
     def ensure_bindings_exist(cls) -> bool:
         """Ensure key bindings exist in user extensions configuration.
 
-        Return True if need to save."""
+        Return True if need to save.
+        """
         need_save = False
         section = f"{cls.__name__}_cfgBindings"
         if ensure_section_exists(section):
@@ -383,7 +404,8 @@ class idlemypyextension:  # pylint: disable=invalid-name
     def ensure_config_exists(cls) -> bool:
         """Ensure required configuration exists for this extension.
 
-        Return True if need to save."""
+        Return True if need to save.
+        """
         need_save = False
         if ensure_section_exists(cls.__name__):
             need_save = True
@@ -393,7 +415,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
 
     @classmethod
     def reload(cls) -> None:
-        "Load class variables from configuration."
+        """Load class variables from configuration."""
         # # Ensure file default values exist so they appear in settings menu
         # save = cls.ensure_configuration_exists()
         # if cls.ensure_bindings_exist() or save:
@@ -407,27 +429,30 @@ class idlemypyextension:  # pylint: disable=invalid-name
             # Set attribute of key name to key value from configuration file
             if key not in {"enable", "enable_editor", "enable_shell"}:
                 value = idleConf.GetOption(
-                    "extensions", cls.__name__, key, default=default
+                    "extensions",
+                    cls.__name__,
+                    key,
+                    default=default,
                 )
                 setattr(cls, key, value)
 
     @classmethod
     def get_msg_line(cls, indent: int, msg: str) -> str:
-        "Return message line given indent and message."
+        """Return message line given indent and message."""
         strindent = " " * indent
         return f"{strindent}{cls.comment}{msg}"
 
     def get_line(self, line: int) -> str:
-        "Get the characters from the given line in the currently open file."
+        """Get the characters from the given line in currently open file."""
         chars: str = self.text.get(*get_line_selection(line))
         return chars
 
     def comment_exists(self, line: int, text: str) -> bool:
-        "Return True if comment for message already exists on line."
+        """Return True if comment for message already exists on line."""
         return self.get_msg_line(0, text) in self.get_line(line - 1)
 
     def add_comment(self, message: Message, max_exist_up: int = 0) -> bool:
-        "Return True if added new comment, False if already exists."
+        """Return True if added new comment, False if already exists."""
         # Get line and message from output
         # file = message.file
         line = message.line
@@ -456,7 +481,9 @@ class idlemypyextension:  # pylint: disable=invalid-name
 
     @staticmethod
     def parse_comments(
-        comments: str, default_file: str, default_line: int
+        comments: str,
+        default_file: str,
+        default_line: int,
     ) -> dict[str, list[Message]]:
         """Get list of message dictionaries from mypy output."""
         error_type = re.compile(r"  \[[a-z\-]+\]\s*$")
@@ -513,14 +540,15 @@ class idlemypyextension:  # pylint: disable=invalid-name
         return files
 
     def get_pointers(self, messages: list[Message]) -> Message | None:
-        """Return message pointing to multiple messages all on the same line
+        """Return message pointing to multiple messages all on the same line.
 
-        Messages must all be on the same line and be in the same file"""
+        Messages must all be on the same line and be in the same file
+        """
         line = messages[0].line
         file = messages[0].file
 
         # Figure out line intent
-        line_text = self.get_line(line)
+        line_text = self.get_line(line + 1)
         indent = get_line_indent(line_text)
         line_len = len(line_text)
 
@@ -554,12 +582,17 @@ class idlemypyextension:  # pylint: disable=invalid-name
 
     @undo_block
     def add_comments(
-        self, target_filename: str, start_line: int, normal: str
+        self,
+        target_filename: str,
+        start_line: int,
+        normal: str,
     ) -> list[int]:
-        """Add comments for target filename, return list of comments added"""
+        """Add comments for target filename, return list of comments added."""
         assert self.files.filename is not None
         files = self.parse_comments(
-            normal, os.path.abspath(self.files.filename), start_line
+            normal,
+            os.path.abspath(self.files.filename),
+            start_line,
         )
 
         # Only handling messages for target filename
@@ -570,14 +603,16 @@ class idlemypyextension:  # pylint: disable=invalid-name
                     line_data[message.line] = []
                 line_data[message.line].append(message)
 
-        line_order: list[int] = list(sorted(line_data, reverse=True))
+        line_order: list[int] = sorted(line_data, reverse=True)
         first: int = line_order[-1] if line_order else start_line
 
         if first not in line_data:  # if used starting line
             line_data[first] = []
             line_order.append(first)
 
-        for filename in {f for f in files if f != target_filename}:
+        for filename in files:
+            if filename == target_filename:
+                continue
             line_data[first].append(
                 Message(
                     file=target_filename,
@@ -585,7 +620,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
                     message=f"note: Another file has errors: {filename}",
                     column_end=0,
                     msg_type="note",
-                )
+                ),
             )
 
         comments = []
@@ -605,7 +640,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
 
     @undo_block
     def add_errors(self, file: str, start_line: int, errors: str) -> None:
-        """Add errors to file"""
+        """Add errors to file."""
         lines = errors.splitlines()
         lines[0] = f"Error running mypy: {lines[0]}"
         for message in reversed(lines):
@@ -619,7 +654,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
             )
 
     def ask_save_dialog(self) -> bool:
-        "Ask to save dialog stolen from idlelib.runscript.ScriptBinding"
+        """Ask to save dialog stolen from idlelib.runscript.ScriptBinding."""
         msg = "Source Must Be Saved\n" + 5 * " " + "OK to Save?"
         confirm: bool = messagebox.askokcancel(
             title="Save Before Run or Check",
@@ -630,21 +665,21 @@ class idlemypyextension:  # pylint: disable=invalid-name
         return confirm
 
     async def ensure_daemon_running(self) -> bool:
-        "Make sure daemon is running. Return False if cannot continue"
+        """Make sure daemon is running. Return False if cannot continue."""
         if not client.is_running(self.status_file):
-            started = await client.start(
+            return await client.start(
                 self.status_file,
                 flags=self.flags,
                 daemon_timeout=self.daemon_timeout,
                 log_file=self.log_file,
             )
-            return started
         return True
 
     async def shutdown_dmypy_daemon_event_async(
-        self, event: "Event[Any]"
+        self,
+        event: Event[Any],
     ) -> str:
-        "Shutdown dmypy daemon event handler"
+        """Shutdown dmypy daemon event handler."""
         # pylint: disable=unused-argument
         if not client.is_running(self.status_file):
             self.text.bell()
@@ -652,31 +687,31 @@ class idlemypyextension:  # pylint: disable=invalid-name
 
         # Only stop if running
         response = await client.stop(self.status_file)
-        if any((v in response and response[v] for v in ("err", "error"))):
+        if any(v in response and response[v] for v in ("err", "error")):
             # Kill
             client.kill(self.status_file)
 
         return "break"
 
     async def check(self, file: str) -> dict[str, Any]:
-        "Preform dmypy check"
+        """Preform dmypy check."""
         if not await self.ensure_daemon_running():
             return {"out": "", "err": "Error: Could not start mypy daemon"}
         flags = self.flags
         flags += [file]
-        # print(f"\n{__title__} DEBUG: check {flags = }\n")
+        # debug(f"check {flags = }")
         command = " ".join(
             [
                 "dmypy",
                 f"--status-file={self.status_file}",
-                "run",
                 f"--log-file={self.log_file}",
+                "run",
                 file,
                 "--",
-            ]
-            + self.flags
+                *self.flags,
+            ],
         )
-        print(f"\n[{__title__}] DEBUG: {command = }")
+        debug(f"{command = }")
         return await client.run(
             self.status_file,
             flags=flags,
@@ -687,20 +722,23 @@ class idlemypyextension:  # pylint: disable=invalid-name
         )
 
     def get_suggestion_text(
-        self, annotation: dict[str, Any]
+        self,
+        annotation: dict[str, Any],
     ) -> tuple[str | None, int]:
         """Get suggestion text from annotation.
 
-        Return None on error or no difference, text if different"""
+        Return None on error or no difference, text if different
+        """
         while annotation["line"] >= 0 and "def" not in self.get_line(
-            annotation["line"]
+            annotation["line"],
         ):
             annotation["line"] -= 1
         line = annotation["line"]
 
         try:
             text, line_count = annotate.get_annotation(
-                annotation, self.get_line
+                annotation,
+                self.get_line,
             )
         except annotate.ParseError as ex:
             ex_text, ex_traceback = sys.exc_info()[1:]
@@ -714,7 +752,8 @@ class idlemypyextension:  # pylint: disable=invalid-name
             indent = get_line_indent(self.get_line(line))
             return (
                 self.get_msg_line(
-                    indent, f"Error generating suggestion: {ex}"
+                    indent,
+                    f"Error generating suggestion: {ex}",
                 ),
                 1,
             )
@@ -728,7 +767,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
         return text, line_count
 
     async def suggest(self, file: str, line: int) -> None:
-        "Preform dmypy suggest"
+        """Preform dmypy suggest."""
         if not await self.ensure_daemon_running():
             response = {"err": "Error: Could not start mypy daemon"}
         else:
@@ -739,7 +778,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
                 do_json=True,
                 timeout=self.action_timeout,
             )
-        # print(f'{__title__} DEBUG: suggest {response = }')
+        # debug(f'suggest {response = }')
 
         normal = ""
         errors = ""
@@ -822,10 +861,11 @@ class idlemypyextension:  # pylint: disable=invalid-name
         self.text.bell()
 
     def initial(self) -> tuple[str | None, str | None]:
-        """Do common initial setup. Return error or none, file, and start line
+        """Do common initial setup. Return error or none, file, and start line.
 
         Reload configuration, make sure file is saved,
-        and make sure mypy is installed"""
+        and make sure mypy is installed
+        """
         self.reload()
 
         # Get file we are checking
@@ -866,8 +906,8 @@ class idlemypyextension:  # pylint: disable=invalid-name
         # Everything worked
         return None, file
 
-    async def suggest_signature_event_async(self, event: "Event[Any]") -> str:
-        "Handle suggest signature event"
+    async def suggest_signature_event_async(self, event: Event[Any]) -> str:
+        """Handle suggest signature event."""
         # pylint: disable=unused-argument
         init_return, file = self.initial()
 
@@ -880,8 +920,8 @@ class idlemypyextension:  # pylint: disable=invalid-name
 
         return "break"
 
-    async def type_check_event_async(self, event: "Event[Any]") -> str:
-        "Preform a mypy check and add comments."
+    async def type_check_event_async(self, event: Event[Any]) -> str:
+        """Preform a mypy check and add comments."""
         init_return, file = self.initial()
 
         if init_return is not None:
@@ -892,7 +932,7 @@ class idlemypyextension:  # pylint: disable=invalid-name
         # Run mypy on open file
         response = await self.check(file)
 
-        print(f"\n[{__title__}] DEBUG: type check {response = }\n")
+        debug(f"type check {response = }")
 
         normal = ""
         errors = ""
@@ -927,8 +967,8 @@ class idlemypyextension:  # pylint: disable=invalid-name
         return "break"
 
     @undo_block
-    def remove_type_comments_event(self, event: "Event[Any]") -> str:
-        "Remove selected mypy comments."
+    def remove_type_comments_event(self, event: Event[Any]) -> str:
+        """Remove selected mypy comments."""
         # pylint: disable=unused-argument
         # Get selected region lines
         head, tail, chars, lines = self.formatter.get_region()
@@ -950,8 +990,8 @@ class idlemypyextension:  # pylint: disable=invalid-name
         return "break"
 
     @undo_block
-    def remove_all_type_comments(self, event: "Event[Any]") -> str:
-        "Remove all mypy comments."
+    def remove_all_type_comments(self, event: Event[Any]) -> str:
+        """Remove all mypy comments."""
         # pylint: disable=unused-argument
         eof_idx = self.text.index("end")
 
@@ -974,8 +1014,8 @@ class idlemypyextension:  # pylint: disable=invalid-name
         return "break"
 
     @undo_block
-    def find_next_type_comment_event(self, event: "Event[Any]") -> str:
-        "Find next comment by hacking the search dialog engine."
+    def find_next_type_comment_event(self, event: Event[Any]) -> str:
+        """Find next comment by hacking the search dialog engine."""
         # pylint: disable=unused-argument
         self.reload()
 
@@ -1015,11 +1055,11 @@ idlemypyextension.reload()
 
 
 def get_fake_editwin(root_tk: Tk) -> PyShellEditorWindow:
-    "Get fake edit window for testing"
+    """Get fake edit window for testing."""
     from idlelib.pyshell import PyShellEditorWindow
 
     class FakeEditWindow(PyShellEditorWindow):  # type: ignore[misc]
-        "FakeEditWindow for testing"
+        """FakeEditWindow for testing."""
 
         def __init__(self) -> None:
             return
@@ -1027,9 +1067,10 @@ def get_fake_editwin(root_tk: Tk) -> PyShellEditorWindow:
         from tkinter import Text
 
         class _FakeText(Text):
-            "Make bind do nothing"
+            """Make bind do nothing."""
 
             def __init__(self) -> None:
+                """Requries no arguments."""
                 return
 
             bind = lambda x, y: None  # type: ignore[assignment]  # noqa

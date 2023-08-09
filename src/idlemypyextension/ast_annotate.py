@@ -27,9 +27,10 @@ __author__ = "CoolCat467"
 __license__ = "Apache License, Version 2.0"
 
 
+import ast
 import re
+import tokenize
 from collections.abc import Callable, Collection, Sequence
-from tokenize import generate_tokens, tok_name
 from typing import Any, Final, NoReturn
 
 BUILTINS: Final = {"List", "Set", "Type", "Dict", "Tuple"}
@@ -65,91 +66,14 @@ class Token:
         return f"{self.__class__.__name__}({value})"
 
 
-class Name(Token):
-    """Name Token."""
-
-    __slots__ = ()
-
-
-class FunctionName(Token):
-    """Function name."""
-
-    __slots__ = ()
-
-
-class ArgumentName(Name):
-    """Argument name."""
-
-    __slots__ = ()
-
-
-class Operator(Token):
-    """Operator Token."""
-
-    __slots__ = ()
-
-
-class DottedName(Name):
+class DottedName(Token):
     """An identifier token, such as 'List', 'int' or 'package.name'."""
 
     __slots__ = ()
 
 
-class ArgumentDefault(DottedName):
-    """Argument value."""
-
-    __slots__ = ()
-
-
-class Separator(Operator):
+class Separator(Token):
     """A separator or punctuator token such as '(', '[' or '->'."""
-
-    __slots__ = ()
-
-
-class EndSeparator(Separator):
-
-    """End separator that does not need extra space."""
-
-
-class Colin(Separator):
-    """Colin ':'."""
-
-    __slots__ = ()
-
-
-class TypeDef(Colin):
-    """Type Definition Start ':'."""
-
-    __slots__ = ()
-
-
-class DefaultDef(Separator):
-    """Argument Default Definition Start '='."""
-
-    __slots__ = ()
-
-
-class Keyword(Name):
-    """Keyword such as 'async', 'def'."""
-
-    __slots__ = ()
-
-
-class ReturnTypeDef(Separator):
-    """Return type definition '->'."""
-
-    __slots__ = ()
-
-
-class Definition(Keyword):
-    """Definition keyword."""
-
-    __slots__ = ()
-
-
-class EndDefinition(Colin):
-    """End Definition Colin."""
 
     __slots__ = ()
 
@@ -164,7 +88,7 @@ class End(Token):
         super().__init__()
 
 
-def tokenize(txt: str) -> list[Token]:
+def tokenize_annotation(txt: str) -> list[Token]:
     """Translate a type comment into a list of tokens."""
     original = txt
     txt = txt.replace("?", "")
@@ -217,18 +141,25 @@ def get_line_indent(text: str, char: str = " ") -> int:
     return 0
 
 
+def deindent(level: int, text: str) -> str:
+    """Undo indent on text by level of characters."""
+    prefix = " " * level
+    return "\n".join(line.removeprefix(prefix) for line in text.splitlines())
+
+
 def tokenize_definition(
     start_line: int,
     get_line: Callable[[int], str],
-) -> tuple[list[Token], int]:
-    """Return list of Tokens and number of lines after start."""
+) -> tuple[ast.FunctionDef, int]:
+    """Return Function Definition AST and number of lines after start."""
     current_line_no = start_line
+    definition_lines = []
 
     def read_line() -> str:
         """Incremental wrapper for get_line."""
         nonlocal current_line_no
         value = get_line(current_line_no)
-        # print(f'read_line: {value!r}')
+        definition_lines.append(value)
         current_line_no += 1
         return value
 
@@ -237,47 +168,19 @@ def tokenize_definition(
     brackets = 0  # Current number of brackets in use
     typedef = 0  # Brackets in type definition (truthy if in type definition)
     default_arg = 0  # Brackets in default argument value
-    indent = 0  # Current indent
-    tokens: list[Token] = []
 
     # For each token tokenizer module finds
-    for token in generate_tokens(read_line):
-        # print(f'{tok_name[token.type]} {token.string!r}', end=' -> ')
+    for token in tokenize.generate_tokens(read_line):
         string = token.string
-        if tok_name[token.type] == "NAME":
-            if string == "async":  # Remember async
-                tokens.append(Keyword(string))
-            elif (
-                string == "def"
-            ):  # Error if more than one in case invalid start
+        token_name = tokenize.tok_name[token.type]
+        if token_name == "NAME":  # noqa: S105
+            if string == "def":  # Error if more than one in case invalid start
                 if hasdef:
                     raise ParseError(
                         "Did not expect second definition keyword",
                     )
-                tokens.append(Definition(string))
                 hasdef = True  # Have definition now
-            elif not defstart:  # If not started definition, only function name
-                tokens.append(FunctionName(string))
-            elif typedef:  # If we are doing type definition, add DottedName
-                # If last was also a DottedName and it ended with a dot,
-                # instead add name text to previous
-                if (
-                    tokens
-                    and isinstance(tokens[-1], DottedName)
-                    and tokens[-1].text is not None
-                    and tokens[-1].text.endswith(".")
-                ):
-                    previous = tokens.pop().text
-                    assert previous is not None
-                    tokens.append(DottedName(previous + string))
-                else:
-                    tokens.append(DottedName(string))
-            elif default_arg:
-                # If defining argument default, add ArgumetDefault
-                tokens.append(ArgumentDefault(string))
-            else:  # Otherwise is an argument name
-                tokens.append(ArgumentName(string))
-        elif tok_name[token.type] == "OP":
+        elif token_name == "OP":  # noqa: S105
             if string in "([{":
                 # We have traveled in an bracket level
                 brackets += 1
@@ -290,7 +193,6 @@ def tokenize_definition(
                     typedef += 1
                 if default_arg:
                     default_arg += 1
-                tokens.append(EndSeparator(string))  # No spaces
             elif string in ")]}":
                 # Left a bracket level
                 brackets -= 1
@@ -298,103 +200,35 @@ def tokenize_definition(
                     typedef -= 1
                 if default_arg:
                     default_arg -= 1
-                tokens.append(EndSeparator(string))
-            elif string in {"*", "**", "/"}:
-                tokens.append(EndSeparator(string))
-            elif string == "|":
-                tokens.append(Separator(string))
             elif string == ",":
                 # If exactly one level, leaving type definition land
                 if typedef == 1:
                     typedef = 0
                 if default_arg == 1:
                     default_arg = 0
-                tokens.append(Separator(string))  # Space on end
             elif string == "->":
                 # We are defining a return type
-                tokens.append(ReturnTypeDef(string))
                 typedef = 1
             elif string == ":":
                 if defstart and not brackets:
                     # Ran out of brackets so done defining function
-                    tokens.append(EndDefinition(string))
                     typedef = 0
                     break
-                tokens.append(TypeDef(string))
                 typedef = 1
             elif string == "=":  # Defining a default definition
-                tokens.append(DefaultDef(string))
                 typedef = 0  # shouldn't be defining type but make sure
                 default_arg = 1
-            elif string in {"-", "+", "~"}:  # Unary operators
-                # Add on to previous ArgumentDefault if it exists
-                if tokens and isinstance(tokens[-1], ArgumentDefault):
-                    previous = tokens.pop().text
-                    assert previous is not None
-                    tokens.append(ArgumentDefault(previous + string))
-                else:
-                    tokens.append(ArgumentDefault(string))
-            elif string in {
-                "/",
-                "//",
-                "*",
-                "^",
-                "@",
-                "%",
-                "**",
-                ">>",
-                "<<",
-                "&",
-                "|",
-            }:  # All other math operators
-                if tokens and isinstance(tokens[-1], ArgumentDefault):
-                    prev = tokens.pop().text
-                    assert prev is not None
-                    tokens.append(ArgumentDefault(f"{prev} {string} "))
-                elif string == "@" and not hasdef:
-                    # Not matrix multiplication, decorator
-                    tokens.append(Separator(string))
-                else:
-                    tokens.append(ArgumentDefault(string))
-            elif string == "." and (
-                tokens and isinstance(tokens[-1], DottedName)
-            ):
-                previous = tokens.pop().text
-                assert previous is not None
-                tokens.append(DottedName(previous + string))
-            elif string == "...":  # Ellipsis constant
-                tokens.append(DottedName(string))
-            else:
-                raise ParseError(f"Exaustive list of OP failed: {string!r}")
-        elif tok_name[token.type] == "INDENT":
-            tokens.append(EndSeparator(string))
-            indent = len(string)
-        elif tok_name[token.type] in {"NL", "NEWLINE"}:
-            # replace separator ends with end separators
-            if tokens and isinstance(tokens[-1], Separator):
-                tokens.append(EndSeparator(tokens.pop().text))
-            tokens.append(EndSeparator(string))
-            # we have a new indent level
-            indent = get_line_indent(get_line(current_line_no))
-            tokens.append(EndSeparator(" " * indent))
-        elif tok_name[token.type] == "COMMENT":
-            # Remember comments as separators
-            tokens.append(EndSeparator(string))
-        elif tok_name[token.type] in {"STRING", "NUMBER"}:
-            # Only argument default, so add on to previous if exists
-            if tokens and isinstance(tokens[-1], ArgumentDefault):
-                previous = tokens.pop().text
-                assert previous is not None
-                tokens.append(ArgumentDefault(previous + string))
-            else:
-                tokens.append(ArgumentDefault(string))
-        else:
-            raise ParseError(f"Unrecognized token type {tok_name[token.type]}")
-        # print(tokens[-1])
-    # print(tokens[-1])
-    # print()
-    tokens.append(End())
-    return tokens, current_line_no - start_line
+    definition = "".join(definition_lines).rstrip() + " ..."
+    indent_level = get_line_indent(definition)
+    definition = deindent(indent_level, definition)
+    print(f"[{__title__}] DEBUG: {definition = }")
+
+    code = ast.parse(definition, type_comments=True)
+    ast_def = code.body[0]
+    if not isinstance(ast_def, ast.FunctionDef):
+        raise ParseError(f"Expected FunctionDef, got {type(ast_def)}")
+    # print(f"{ast.unparse(ast_def)}")
+    return ast_def, current_line_no - start_line
 
 
 def get_type_repr(name: str) -> str:
@@ -418,13 +252,26 @@ def get_typevalue_repr(typevalue: TypeValue) -> str:
     for arg in typevalue.args:
         args.append(get_typevalue_repr(arg))
     if not args:
-        if name:
-            return name
-        return "[]"
+        return name
     if name == "Union":
         return " | ".join(args)
     values = ", ".join(args)
     return f"{name}[{values}]"
+
+
+def typevalue_as_ast(typevalue: TypeValue) -> ast.Name | ast.Subscript:
+    """Convert TypeValue into AST Name or Subscript."""
+    name = get_type_repr(typevalue.name)
+    if not typevalue.args:
+        return ast.Name(name, ast.Load())
+    slice_: ast.Tuple | ast.Name | ast.Subscript
+    if len(typevalue.args) > 1:
+        type_args = [typevalue_as_ast(v) for v in typevalue.args]
+        slice_ = ast.Tuple(type_args, ast.Load())
+    else:
+        slice_ = typevalue_as_ast(typevalue.args[0])
+
+    return ast.Subscript(ast.Name(name, ast.Load()), slice_, ast.Load())
 
 
 class TypeValue:
@@ -545,7 +392,7 @@ class Parser:
         """Parse lambda arguments."""
         arguments = []
         while self.lookup() != ":":
-            typ = self.expect_type((ArgumentDefault, DottedName))
+            typ = self.expect_type(DottedName)
             assert typ.text is not None
             arguments.append(typ.text)
             string = self.lookup()
@@ -570,7 +417,7 @@ class Parser:
             assert token.text is not None
             value += token.text
 
-            if not isinstance(token, Name | EndSeparator | DefaultDef):
+            if not isinstance(token, DottedName | Separator):
                 value += " "
 
             if token.text in {"(", "[", "{"}:
@@ -578,10 +425,6 @@ class Parser:
             elif token.text in {")", "]", "}"}:
                 brackets -= 1
                 if not brackets:
-                    break
-                if brackets < 0:  # Reached end of expression in odd case
-                    self.back()
-                    value = value[:-1]
                     break
         return value
 
@@ -646,7 +489,7 @@ class Parser:
 
     def rest_tokens(self) -> list[Token]:
         """Return all tokens not processed."""
-        return self.tokens[self.i : len(self.tokens)]
+        return self.tokens[self.i :]
 
 
 def get_annotation(
@@ -658,7 +501,7 @@ def get_annotation(
 
     # Get definition tokens
     try:
-        def_tokens, line_count = tokenize_definition(
+        func_ast, line_count = tokenize_definition(
             annotation["line"],
             get_line,
         )
@@ -666,124 +509,34 @@ def get_annotation(
         print(f"Could not tokenize definition\n{annotation = }")
         raise
     except EOFError as exc:
-        print(f"[ERROR] Annotate: {annotation = }\n")
         raise ParseError(
             "Reached End of File, expected end of definition",
         ) from exc
 
     # Get the argument and return tokens from signature
     signature = annotation["signature"]
-    arg_tokens = [tokenize(arg) for arg in signature["arg_types"]]
-    return_tokens = tokenize(signature["return_type"])
+    arg_tokens = [tokenize_annotation(arg) for arg in signature["arg_types"]]
+    return_tokens = tokenize_annotation(signature["return_type"])
 
-    # Find start of argument definition
-    new_lines = ""
-    parser = Parser(def_tokens)
-    while True:
-        token = parser.next()
-        if isinstance(token, ArgumentName):
-            parser.back()
-            break
-        if token.text == ")":
-            parser.back()
-            break
-        assert (
-            token.text is not None
-        ), "Unreachable, End token is only null text token"
-        new_lines += token.text
-        if isinstance(token, Keyword):
-            new_lines += " "
+    arg_idx = 0
+    for attr in ("posonlyargs", "args", "vararg", "kwonlyargs", "kwarg"):
+        arg_list = getattr(func_ast.args, attr, [])
+        if not arg_list:
+            continue
+        for argument in arg_list:
+            if argument.annotation is not None:
+                arg_idx += 1
+                continue
+            parser = Parser(arg_tokens[arg_idx])
+            type_value = parser.parse_type()
+            argument.annotation = typevalue_as_ast(type_value)
+            arg_idx += 1
+    if func_ast.returns is None:
+        parser = Parser(return_tokens)
+        type_value = parser.parse_type()
+        func_ast.returns = typevalue_as_ast(type_value)
 
-    # Find out which arguments we have to skip (*, **, /)
-    skip_args: set[int] = set()
-    # print(f'{parser.rest_tokens() = }\n')
-    argument = 0
-    argparser = Parser(parser.rest_tokens())
-    while True:
-        token = argparser.next()
-        if isinstance(token, Separator):
-            if token.text == ")":
-                break
-            if token.text == "/":
-                skip_args.add(argument)
-                argument += 1
-            elif token.text == "*":
-                skip_args.add(argument)
-                argument += 1
-                if argparser.lookup() == "*":
-                    argparser.expect("*")
-        elif isinstance(token, ArgumentName):
-            argument += 1
-        elif isinstance(token, End):
-            parser.back()
-            break
-
-    arg_place = len(arg_tokens) - argument
-    if arg_place < 0:
-        # Self or class argument does not require type so annotations are
-        # not given
-        for skip in range(-arg_place):
-            skip_args.add(skip)
-
-    # Handle arguments
-    argument = 0
-    while True:
-        token = parser.next()
-        if isinstance(token, Separator):
-            if isinstance(token, EndSeparator):
-                assert token.text is not None
-                new_lines += token.text
-            else:
-                new_lines += f"{token.text} "
-            if token.text == ")":
-                break
-            if token.text in {"*", "/"}:
-                argument += 1
-        elif isinstance(token, ArgumentName):
-            name = token.text
-            type_text = ""
-            if isinstance(parser.peek(), TypeDef):
-                parser.expect(":")
-                type_value = parser.parse_type()
-                type_text = ": " + str(type_value)
-            elif argument not in skip_args:
-                type_value = Parser(arg_tokens[arg_place]).parse_type()
-                type_text = ": " + str(type_value)
-            if isinstance(parser.peek(), DefaultDef):
-                parser.expect("=")
-                type_text += " = "
-                if isinstance(parser.peek(), EndSeparator):
-                    type_text += f"{parser.next().text}"
-                    type_text += ", ".join(map(str, parser.parse_type_list()))
-                    type_text += f"{parser.next().text}"
-                else:
-                    type_text += str(parser.parse_type())
-            new_lines += f"{name}{type_text}"
-            argument += 1
-            arg_place += 1
-        elif isinstance(token, End):
-            print("Found End token during argument parsing")
-            parser.back()
-            break
-    # print(f'{type_text = }')
-
-    # Handle the end
-    if isinstance(parser.peek(), EndDefinition | End):
-        parser.tokens = (
-            [ReturnTypeDef("->")] + return_tokens[:-1] + parser.rest_tokens()
-        )
-        parser.i = 0
-    # print(f'{parser.rest_tokens() = }')
-    parser.expect("->")
-    new_lines += " -> "
-    ret_type = str(parser.parse_type())
-    new_lines += ret_type
-    while True:
-        token = parser.next()
-        if isinstance(token, End):
-            break
-        assert token.text is not None
-        new_lines += token.text
+    new_lines = "\n".join(ast.unparse(func_ast).splitlines()[:-1])
 
     return new_lines, line_count
 
@@ -800,9 +553,12 @@ def run(annotation: dict[str, str]) -> None:
                     return line_text
             raise EOFError
 
-    print(f"{get_annotation(annotation, get_line)!r}")
+    print(f"{get_annotation(annotation, get_line)[0]!r}")
 
 
 if __name__ == "__main__":
     print(f"{__title__}\nProgrammed by {__author__}.\n")
-    # run()
+    # annotation = {
+    #
+    # }
+    # run(annotation)

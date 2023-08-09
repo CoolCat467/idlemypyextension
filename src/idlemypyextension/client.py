@@ -1,13 +1,7 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-# Mypy Daemon Client - Modified version of mypy.dmypy.client
-
-"""Client for mypy daemon mode.
+"""Client for mypy daemon mode - Modified version of mypy.dmypy.client.
 
 This manages a daemon process which keeps useful state in memory
 rather than having to read it back from disk on each run.
-
-Modified version of mypy.dmypy.client
 """
 
 # Modified by CoolCat467
@@ -46,20 +40,22 @@ from __future__ import annotations
 __title__ = "Mypy Daemon Asynchronous Client"
 __license__ = "MIT"
 
+import contextlib
 import io
 import json
 import os
 import time
-from typing import Any, Sequence, cast
+from collections.abc import Sequence
+from typing import Any, cast
 
 import trio
-from mypy.dmypy_os import alive as _alive
-from mypy.dmypy_os import kill as _kill
-from mypy.dmypy_server import Server as _Server
-from mypy.dmypy_server import daemonize as _daemonize
-from mypy.dmypy_server import process_start_options as _process_start_options
-from mypy.ipc import IPCClient as _IPCClient
-from mypy.ipc import IPCException as _IPCException
+from mypy.dmypy_os import alive as _alive, kill as _kill
+from mypy.dmypy_server import (
+    Server as _Server,
+    daemonize as _daemonize,
+    process_start_options as _process_start_options,
+)
+from mypy.ipc import IPCClient as _IPCClient, IPCException as _IPCException
 from mypy.version import __version__
 
 
@@ -82,7 +78,8 @@ async def _receive(connection: _IPCClient) -> Any:
     return data
 
 
-class BadStatus(Exception):
+class BadStatusError(Exception):
+
     """Exception raised when there is something wrong with the status file.
 
     For example:
@@ -98,18 +95,18 @@ class BadStatus(Exception):
 def _read_status(status_file: str) -> dict[str, object]:
     """Read status file.
 
-    Raise BadStatus if the status file doesn't exist or contains
+    Raise BadStatusError if the status file doesn't exist or contains
     invalid JSON or the JSON is not a dict.
     """
     if not os.path.isfile(status_file):
-        raise BadStatus("No status file found")
-    with open(status_file, "r", encoding="utf-8") as file:
+        raise BadStatusError("No status file found")
+    with open(status_file, encoding="utf-8") as file:
         try:
             data = json.load(file)
         except Exception as ex:
-            raise BadStatus("Malformed status file (not JSON)") from ex
+            raise BadStatusError("Malformed status file (not JSON)") from ex
     if not isinstance(data, dict):
-        raise BadStatus("Invalid status file (not a dict)")
+        raise BadStatusError("Invalid status file (not a dict)")
     return data
 
 
@@ -118,20 +115,20 @@ def _check_status(data: dict[str, Any]) -> tuple[int, str]:
 
     Return (process id, connection_name) on success.
 
-    Raise BadStatus if something's wrong.
+    Raise BadStatusError if something's wrong.
     """
     if "pid" not in data:
-        raise BadStatus("Invalid status file (no pid field)")
+        raise BadStatusError("Invalid status file (no pid field)")
     pid = data["pid"]
     if not isinstance(pid, int):
-        raise BadStatus("pid field is not an int")
+        raise BadStatusError("pid field is not an int")
     if not _alive(pid):
-        raise BadStatus("Daemon has died")
+        raise BadStatusError("Daemon has died")
     if "connection_name" not in data:
-        raise BadStatus("Invalid status file (no connection_name field)")
+        raise BadStatusError("Invalid status file (no connection_name field)")
     connection_name = data["connection_name"]
     if not isinstance(connection_name, str):
-        raise BadStatus("connection_name field is not a string")
+        raise BadStatusError("connection_name field is not a string")
     return pid, connection_name
 
 
@@ -140,7 +137,7 @@ def get_status(status_file: str) -> tuple[int, str]:
 
     Return (process id, connection_name) on success.
 
-    Raise BadStatus if something's wrong.
+    Raise BadStatusError if something's wrong.
     """
     data = _read_status(status_file)
     return _check_status(data)
@@ -157,7 +154,7 @@ async def request(
 
     Return the JSON dict with the response.
 
-    Raise BadStatus if there is something wrong with the status file
+    Raise BadStatusError if there is something wrong with the status file
     or if the process whose process id is in the status file has died.
 
     Return {'error': <message>} if an IPC operation or receive()
@@ -185,10 +182,10 @@ async def request(
 
 
 def is_running(status_file: str) -> bool:
-    """Check if the server is running cleanly"""
+    """Check if the server is running cleanly."""
     try:
         get_status(status_file)
-    except BadStatus:
+    except BadStatusError:
         return False
     return True
 
@@ -204,14 +201,14 @@ async def _wait_for_server(status_file: str, timeout: float = 5.0) -> bool:
     while time.time() < endtime:
         try:
             data = _read_status(status_file)
-        except BadStatus:
+        except BadStatusError:
             # If the file isn't there yet, retry later.
             await trio.sleep(0.1)
             continue
         # If the file's content is bogus or the process is dead, fail.
         try:
             _check_status(data)
-        except BadStatus:
+        except BadStatusError:
             return False
         return True
     return False
@@ -250,12 +247,11 @@ async def restart(
 ) -> bool:
     """Restart daemon (it may or may not be running; but not hanging).
 
-    Returns False if error starting."""
-    try:
+    Returns False if error starting.
+    """
+    # Bad or missing status file or dead process; good to start.
+    with contextlib.suppress(BadStatusError):
         await stop(status_file)
-    except BadStatus:
-        # Bad or missing status file or dead process; good to start.
-        pass
     return await _start_server(
         status_file,
         flags=flags,
@@ -278,7 +274,8 @@ async def start(
 ) -> bool:
     """Start daemon if not already running.
 
-    Returns False if error starting / already running."""
+    Returns False if error starting / already running.
+    """
     if not is_running(status_file):
         # Bad or missing status file or dead process; good to start.
         return await _start_server(
@@ -315,10 +312,11 @@ async def run(
     log_file: str | None = None,
     export_types: bool = False,
 ) -> dict[str, Any]:
-    """Do a check, starting (or restarting) the daemon as necessary
+    """Do a check, starting (or restarting) the daemon as necessary.
 
     Restarts the daemon if the running daemon reports that it is
-    required (due to a configuration change, for example)."""
+    required (due to a configuration change, for example).
+    """
     if not is_running(status_file):
         # Bad or missing status file or dead process; good to start.
         await _start_server(
@@ -392,8 +390,7 @@ async def recheck(
     remove: list[str] | None = None,
     update: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Ask the daemon to recheck the previous list of files, with optional
-    modifications.
+    """Ask the daemon to recheck the previous list of files.
 
     If at least one of --remove or --update is given, the server will
     update the list of files to check accordingly and assume that any other
@@ -416,7 +413,10 @@ async def recheck(
             update=update,
         )
     return await request(
-        status_file, "recheck", timeout=timeout, export_types=export_types
+        status_file,
+        "recheck",
+        timeout=timeout,
+        export_types=export_types,
     )
 
 
@@ -488,9 +488,10 @@ async def hang(status_file: str, *, timeout: int = 1) -> dict[str, Any]:
 
 
 def do_daemon(
-    status_file: str, flags: list[str], daemon_timeout: int | None = None
+    status_file: str,
+    flags: list[str],
+    daemon_timeout: int | None = None,
 ) -> None:
     """Serve requests in the foreground."""
-
     options = _process_start_options(flags, allow_sources=False)
     _Server(options, status_file, timeout=daemon_timeout).serve()
