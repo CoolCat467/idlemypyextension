@@ -200,7 +200,7 @@ def tokenize(txt: str) -> list[Token]:
             if fullname.startswith("pytz.tzfile."):
                 fullname = "datetime.tzinfo"
             if "-" in fullname or "/" in fullname:
-                print(f"{__file__}: {fullname} -> Any")
+                print(f"{__file__}: {fullname!r} -> Any")
                 # Not a valid Python name; there are many places that
                 # generate these, so we just substitute Any rather
                 # than crashing.
@@ -211,10 +211,10 @@ def tokenize(txt: str) -> list[Token]:
 
 def get_line_indent(text: str, char: str = " ") -> int:
     """Return line indent."""
-    for idx, cur in enumerate(text.split(char)):
-        if cur != "":
-            return idx
-    return 0
+    for index, cur_char in enumerate(text):
+        if cur_char != char:
+            return index
+    return index + 1
 
 
 def tokenize_definition(
@@ -274,7 +274,28 @@ def tokenize_definition(
                     tokens.append(DottedName(string))
             elif default_arg:
                 # If defining argument default, add ArgumetDefault
-                tokens.append(ArgumentDefault(string))
+                if tokens and isinstance(tokens[-1], ArgumentDefault):
+                    if tokens[-1].text in {"+", "-", "~"}:
+                        previous = tokens.pop().text
+                        assert previous is not None
+                        tokens.append(ArgumentDefault(previous + string))
+                    if (
+                        len(tokens[-1].text) >= 2
+                        and tokens[-1].text[-1] == " "
+                        and tokens[-1].text[-2]
+                        in {"@", "&", "%", "^", "*", "/"}
+                    ):
+                        previous = tokens.pop().text
+                        assert previous is not None
+                        tokens.append(ArgumentDefault(previous + string))
+                    elif tokens[-1].text[-1] in {"+", "-"}:
+                        previous = tokens.pop().text
+                        assert previous is not None
+                        tokens.append(ArgumentDefault(f"{previous} {string}"))
+                    else:
+                        tokens.append(ArgumentDefault(string))
+                else:
+                    tokens.append(ArgumentDefault(string))
             else:  # Otherwise is an argument name
                 tokens.append(ArgumentName(string))
         elif tok_name[token.type] == "OP":
@@ -331,7 +352,10 @@ def tokenize_definition(
                 if tokens and isinstance(tokens[-1], ArgumentDefault):
                     previous = tokens.pop().text
                     assert previous is not None
-                    tokens.append(ArgumentDefault(previous + string))
+                    if string in {"-", "+"}:
+                        tokens.append(ArgumentDefault(f"{previous} {string}"))
+                    else:
+                        tokens.append(ArgumentDefault(previous + string))
                 else:
                     tokens.append(ArgumentDefault(string))
             elif string in {
@@ -390,7 +414,7 @@ def tokenize_definition(
                 tokens.append(ArgumentDefault(string))
         else:
             raise ParseError(f"Unrecognized token type {tok_name[token.type]}")
-        # print(tokens[-1])
+        print(tokens[-1])
     # print(tokens[-1])
     # print()
     tokens.append(End())
@@ -712,33 +736,37 @@ def get_annotation(
                 argument += 1
                 if argparser.lookup() == "*":
                     argparser.expect("*")
+
         elif isinstance(token, ArgumentName):
             argument += 1
         elif isinstance(token, End):
             parser.back()
             break
+    # print(f"{skip_args = } {len(arg_tokens) = } {argument = }")
 
     arg_place = len(arg_tokens) - argument
     if arg_place < 0:
         # Self or class argument does not require type so annotations are
         # not given
-        for skip in range(-arg_place):
-            skip_args.add(skip)
+        skip_args.add(0)
+        arg_place = -1
+    # print(f"{skip_args = }")
 
     # Handle arguments
     argument = 0
     while True:
         token = parser.next()
+        # print(f"{token = } ({argument = })")
         if isinstance(token, Separator):
             if isinstance(token, EndSeparator):
                 assert token.text is not None
                 new_lines += token.text
             else:
                 new_lines += f"{token.text} "
-            if token.text == ")":
-                break
             if token.text in {"*", "/"}:
                 argument += 1
+            if token.text == ")":
+                break
         elif isinstance(token, ArgumentName):
             name = token.text
             type_text = ""
@@ -761,7 +789,7 @@ def get_annotation(
             new_lines += f"{name}{type_text}"
             argument += 1
             arg_place += 1
-        elif isinstance(token, End):
+        elif isinstance(token, End):  # pragma: no cover
             print("Found End token during argument parsing")
             parser.back()
             break
