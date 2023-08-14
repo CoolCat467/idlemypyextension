@@ -46,7 +46,7 @@ class ParseError(Exception):
         if comment is None:
             comment = ""
         elif hasattr(self, "add_note"):  # New in Python 3.11
-            self.add_note(comment)
+            self.add_note(comment)  # pragma: nocover
         super().__init__(comment)
 
 
