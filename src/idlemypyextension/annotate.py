@@ -442,7 +442,7 @@ def tokenize_definition(
             )
         else:  # pragma: nocover
             raise ParseError(f"Unrecognized token type {tok_name[token.type]}")
-        print(tokens[-1])
+        # print(tokens[-1])
     # print(tokens[-1])
     # print()
     tokens.append(End())
