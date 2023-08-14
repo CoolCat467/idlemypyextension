@@ -28,9 +28,9 @@ __license__ = "Apache License, Version 2.0"
 
 
 import re
-from collections.abc import Callable, Collection, Sequence
-from tokenize import generate_tokens, tok_name
-from typing import Any, Final, NoReturn
+from collections.abc import Callable, Collection, Generator, Sequence
+from tokenize import TokenInfo, generate_tokens, tok_name
+from typing import Any, Final, NamedTuple, NoReturn
 
 BUILTINS: Final = {"List", "Set", "Type", "Dict", "Tuple"}
 
@@ -50,19 +50,16 @@ class ParseError(Exception):
         super().__init__(comment)
 
 
-class Token:
+class Token(NamedTuple):
     """Base token."""
 
-    __slots__ = ("text",)
+    text: str | None = None
 
-    def __init__(self, text: str | None = None) -> None:
-        """Initialize self with text."""
-        self.text = text
 
-    def __repr__(self) -> str:
-        """Get reprentation for this token."""
-        value = "" if self.text is None else f"{self.text!r}"
-        return f"{self.__class__.__name__}({value})"
+class LambdaBody(Token):
+    """Lambda Body Text Token."""
+
+    __slots__ = ()
 
 
 class Name(Token):
@@ -211,10 +208,46 @@ def tokenize(txt: str) -> list[Token]:
 
 def get_line_indent(text: str, char: str = " ") -> int:
     """Return line indent."""
+    if not text:
+        return 0
     for index, cur_char in enumerate(text):
         if cur_char != char:
             return index
     return index + 1
+
+
+def read_lambda(generator: Generator[TokenInfo, None, None]) -> str:
+    """Return lambda body text."""
+    text = []
+
+    brackets = 0  # Current number of brackets in use
+    has_args = False
+
+    for token in generator:
+        string = token.string
+        type_ = tok_name[token.type]
+        # print(f'{string = }')
+        if type_ == "OP":
+            if string in "([{":
+                # We have traveled in an bracket level
+                brackets += 1
+            elif string in ")]}":
+                # Left a bracket level
+                brackets -= 1
+            elif string == ":":
+                has_args = True
+                string += " "
+            elif string == ",":
+                string += " "
+        text.append(string)
+        if (
+            token.end[1] < len(token.line)
+            and token.line[token.end[1]] in {",", "\n"}
+            and has_args
+            and not brackets
+        ):
+            return "".join(text)
+    raise ParseError("Reading lambda failed")  # pragma: nocover
 
 
 def tokenize_definition(
@@ -225,7 +258,7 @@ def tokenize_definition(
     current_line_no = start_line
 
     def read_line() -> str:
-        """Incremental wrapper for get_line."""
+        """Return next line."""
         nonlocal current_line_no
         value = get_line(current_line_no)
         # print(f'read_line: {value!r}')
@@ -241,7 +274,8 @@ def tokenize_definition(
     tokens: list[Token] = []
 
     # For each token tokenizer module finds
-    for token in generate_tokens(read_line):
+    token_generator = generate_tokens(read_line)
+    for token in token_generator:
         # print(f'{tok_name[token.type]} {token.string!r}', end=' -> ')
         string = token.string
         if tok_name[token.type] == "NAME":
@@ -272,28 +306,22 @@ def tokenize_definition(
                     tokens.append(DottedName(previous + string))
                 else:
                     tokens.append(DottedName(string))
+            elif default_arg and string == "lambda":
+                tokens.append(ArgumentDefault(string))
+                tokens.append(LambdaBody(read_lambda(token_generator)))
             elif default_arg:
                 # If defining argument default, add ArgumetDefault
                 if tokens and isinstance(tokens[-1], ArgumentDefault):
-                    if tokens[-1].text in {"+", "-", "~"}:
-                        previous = tokens.pop().text
-                        assert previous is not None
-                        tokens.append(ArgumentDefault(previous + string))
-                    if (
-                        len(tokens[-1].text) >= 2
-                        and tokens[-1].text[-1] == " "
-                        and tokens[-1].text[-2]
-                        in {"@", "&", "%", "^", "*", "/"}
-                    ):
-                        previous = tokens.pop().text
-                        assert previous is not None
-                        tokens.append(ArgumentDefault(previous + string))
-                    elif tokens[-1].text[-1] in {"+", "-"}:
+                    assert tokens[-1].text is not None
+                    last = tokens[-1].text.rstrip()[-1]
+                    if last in {"+", "-"}:
                         previous = tokens.pop().text
                         assert previous is not None
                         tokens.append(ArgumentDefault(f"{previous} {string}"))
                     else:
-                        tokens.append(ArgumentDefault(string))
+                        previous = tokens.pop().text
+                        assert previous is not None
+                        tokens.append(ArgumentDefault(previous + string))
                 else:
                     tokens.append(ArgumentDefault(string))
             else:  # Otherwise is an argument name
@@ -309,8 +337,8 @@ def tokenize_definition(
                 # If doing a type definition, we have typedef level
                 if typedef:
                     typedef += 1
-                if default_arg:
-                    default_arg += 1
+                # if default_arg:
+                #     default_arg += 1
                 tokens.append(EndSeparator(string))  # No spaces
             elif string in ")]}":
                 # Left a bracket level
@@ -320,7 +348,7 @@ def tokenize_definition(
                 if default_arg:
                     default_arg -= 1
                 tokens.append(EndSeparator(string))
-            elif string in {"*", "**", "/"}:
+            elif string in {"*", "**", "/"} and not default_arg:
                 tokens.append(EndSeparator(string))
             elif string == "|":
                 tokens.append(Separator(string))
@@ -358,28 +386,27 @@ def tokenize_definition(
                         tokens.append(ArgumentDefault(previous + string))
                 else:
                     tokens.append(ArgumentDefault(string))
-            elif string in {
-                "/",
-                "//",
-                "*",
-                "^",
-                "@",
-                "%",
-                "**",
-                ">>",
-                "<<",
-                "&",
-                "|",
-            }:  # All other math operators
-                if tokens and isinstance(tokens[-1], ArgumentDefault):
-                    prev = tokens.pop().text
-                    assert prev is not None
-                    tokens.append(ArgumentDefault(f"{prev} {string} "))
-                elif string == "@" and not hasdef:
-                    # Not matrix multiplication, decorator
-                    tokens.append(Separator(string))
-                else:
-                    tokens.append(ArgumentDefault(string))
+            elif (
+                string
+                in {
+                    "/",
+                    "//",
+                    "*",
+                    "^",
+                    "@",
+                    "%",
+                    "**",
+                    ">>",
+                    "<<",
+                    "&",
+                    "|",
+                }
+                and tokens
+                and isinstance(tokens[-1], ArgumentDefault)
+            ):  # All other math operators
+                prev = tokens.pop().text
+                assert prev is not None
+                tokens.append(ArgumentDefault(f"{prev} {string} "))
             elif string == "." and (
                 tokens and isinstance(tokens[-1], DottedName)
             ):
@@ -388,11 +415,8 @@ def tokenize_definition(
                 tokens.append(DottedName(previous + string))
             elif string == "...":  # Ellipsis constant
                 tokens.append(DottedName(string))
-            else:
+            else:  # pragma: no cover
                 raise ParseError(f"Exaustive list of OP failed: {string!r}")
-        elif tok_name[token.type] == "INDENT":
-            tokens.append(EndSeparator(string))
-            indent = len(string)
         elif tok_name[token.type] in {"NL", "NEWLINE"}:
             # replace separator ends with end separators
             if tokens and isinstance(tokens[-1], Separator):
@@ -403,7 +427,7 @@ def tokenize_definition(
             tokens.append(EndSeparator(" " * indent))
         elif tok_name[token.type] == "COMMENT":
             # Remember comments as separators
-            tokens.append(EndSeparator(string))
+            tokens.append(EndSeparator(f"  {string}"))
         elif tok_name[token.type] in {"STRING", "NUMBER"}:
             # Only argument default, so add on to previous if exists
             if tokens and isinstance(tokens[-1], ArgumentDefault):
@@ -412,7 +436,11 @@ def tokenize_definition(
                 tokens.append(ArgumentDefault(previous + string))
             else:
                 tokens.append(ArgumentDefault(string))
-        else:
+        elif tok_name[token.type] == "ENDMARKER":
+            raise EOFError(
+                "Found ENDMARKER token while reading function definition",
+            )
+        else:  # pragma: nocover
             raise ParseError(f"Unrecognized token type {tok_name[token.type]}")
         print(tokens[-1])
     # print(tokens[-1])
@@ -422,7 +450,7 @@ def tokenize_definition(
 
 
 def get_type_repr(name: str) -> str:
-    """Get representation of name."""
+    """Return representation of name."""
     for seperator in (".", ":"):
         if seperator in name:
             module, text = name.split(seperator, 1)
@@ -434,7 +462,7 @@ def get_type_repr(name: str) -> str:
 
 
 def get_typevalue_repr(typevalue: TypeValue) -> str:
-    """Get representation of ClassType."""
+    """Return representation of ClassType."""
     name = get_type_repr(typevalue.name)
     if name in BUILTINS:
         name = name.lower()
@@ -469,12 +497,19 @@ class TypeValue:
             self.args = ()
 
     def __repr__(self) -> str:
-        """Get representation of self."""
-        return f"TypeValue({self.name!r}, {self.args!r})"
+        """Return representation of self."""
+        args = f", {self.args!r}" if self.args else ""
+        return f"TypeValue({self.name!r}{args})"
 
     def __str__(self) -> str:
-        """Get type value representation of self."""
+        """Return type value representation of self."""
         return get_typevalue_repr(self)
+
+    def __eq__(self, rhs: object) -> bool:
+        """Return if rhs is equal to self."""
+        if isinstance(rhs, self.__class__):
+            return self.name == rhs.name and self.args == rhs.args
+        return super().__eq__(rhs)
 
 
 def list_or(values: Collection[str]) -> str:
@@ -513,7 +548,7 @@ class Parser:
         """Parse | separated union list."""
         types = []
         while True:
-            typ = self.parse_type()
+            typ = self.parse_single()
             types.append(typ)
             if self.lookup() != "|":
                 return types
@@ -529,11 +564,11 @@ class Parser:
             self.expect("]")
             return TypeValue("", args)
         token = self.expect_type(DottedName)
+        if token.text is None:
+            self.fail("Expected token text to be string, got None")
         if token.text == "Any":
             return TypeValue("Any")
-        if token.text == "mypy_extensions.NoReturn":
-            return TypeValue("NoReturn")
-        if token.text == "typing.NoReturn":
+        if token.text in {"mypy_extensions.NoReturn", "typing.NoReturn"}:
             return TypeValue("NoReturn")
         if token.text == "Tuple":
             self.expect("[")
@@ -558,56 +593,14 @@ class Parser:
             self.expect("]")
             if token.text == "Optional" and len(args) == 1:
                 return TypeValue("Union", [args[0], TypeValue("None")])
-            if token.text is None:
-                token.text = "None"
             return TypeValue(token.text, args)
-        if token.text is None:
-            token.text = "None"
         return TypeValue(token.text)
-
-    def parse_lambda_arguments(self) -> list[str]:
-        """Parse lambda arguments."""
-        arguments = []
-        while self.lookup() != ":":
-            typ = self.expect_type((ArgumentDefault, DottedName))
-            assert typ.text is not None
-            arguments.append(typ.text)
-            string = self.lookup()
-            if string == ",":
-                self.expect(",")
-            elif string not in {",", ":"}:
-                self.fail(f"Expected , or :, got {string!r}")
-        return arguments
 
     def parse_lambda(self) -> str:
         """Parse lambda expression."""
-        arguments = ", ".join(self.parse_lambda_arguments())
-        self.expect(":")
-        value = f"{arguments}: "
-
-        brackets = 0
-        while not isinstance(self.peek(), End):
-            if self.lookup() == "," and not brackets:
-                break
-            token = self.next()
-
-            assert token.text is not None
-            value += token.text
-
-            if not isinstance(token, Name | EndSeparator | DefaultDef):
-                value += " "
-
-            if token.text in {"(", "[", "{"}:
-                brackets += 1
-            elif token.text in {")", "]", "}"}:
-                brackets -= 1
-                if not brackets:
-                    break
-                if brackets < 0:  # Reached end of expression in odd case
-                    self.back()
-                    value = value[:-1]
-                    break
-        return value
+        body = self.expect_type(LambdaBody)
+        assert body.text is not None
+        return body.text
 
     def parse_type(self) -> TypeValue:
         """Parse type including | unions."""
@@ -647,14 +640,13 @@ class Parser:
         """Expect next token to be instance of token_type. Return token."""
         token = self.next()
         if not isinstance(token, token_type):
-            if hasattr(token_type, "__iter__"):
-                assert isinstance(token_type, tuple)
+            if isinstance(token_type, tuple):
                 expect_str = list_or(
                     [f"{cls.__name__!r}" for cls in token_type],
                 )
             else:
                 expect_str = f"{token_type.__name__!r}"
-            self.fail(f"Expected {expect_str}, got {token}")
+            self.fail(f"Expected {expect_str}, got {token!r}")
         return token
 
     def lookup(self) -> str:
@@ -728,20 +720,18 @@ def get_annotation(
         if isinstance(token, Separator):
             if token.text == ")":
                 break
-            if token.text == "/":
+            if token.text in {"/", "*"}:
                 skip_args.add(argument)
                 argument += 1
-            elif token.text == "*":
-                skip_args.add(argument)
-                argument += 1
-                if argparser.lookup() == "*":
-                    argparser.expect("*")
+                # if argparser.lookup() == "*":
+                #     argparser.expect("*")
 
         elif isinstance(token, ArgumentName):
             argument += 1
-        elif isinstance(token, End):
-            parser.back()
-            break
+        elif isinstance(token, End):  # pragma: nocover
+            raise ParseError(
+                "Found End token during argument location handling",
+            )
     # print(f"{skip_args = } {len(arg_tokens) = } {argument = }")
 
     arg_place = len(arg_tokens) - argument
@@ -816,7 +806,7 @@ def get_annotation(
     return new_lines, line_count
 
 
-def run(annotation: dict[str, str]) -> None:
+def run(annotation: dict[str, str]) -> None:  # pragma: nocover
     """Run test of module."""
 
     def get_line(line: int) -> str:
@@ -831,6 +821,6 @@ def run(annotation: dict[str, str]) -> None:
     print(f"{get_annotation(annotation, get_line)!r}")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: nocover
     print(f"{__title__}\nProgrammed by {__author__}.\n")
     # run()

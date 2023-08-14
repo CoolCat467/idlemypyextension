@@ -8,9 +8,14 @@ import pytest
 from idlemypyextension import annotate
 
 
+def test_parse_error() -> None:
+    with pytest.raises(annotate.ParseError, match=""):
+        raise annotate.ParseError()
+
+
 @pytest.mark.parametrize(
     ("text", "expect"),
-    [("  waf", 2), ("cat", 0), ("     fish", 5), ("   ", 3)],
+    [("  waf", 2), ("cat", 0), ("     fish", 5), ("   ", 3), ("", 0)],
 )
 def test_get_line_indent(text: str, expect: int) -> None:
     assert annotate.get_line_indent(text, " ") == expect
@@ -70,6 +75,50 @@ def test_get_typevalue_repr(
     assert annotate.get_typevalue_repr(typevalue) == result
 
 
+def test_typevalue_repr() -> None:
+    assert (
+        repr(
+            annotate.TypeValue(
+                "Union",
+                (
+                    annotate.TypeValue("set", (annotate.TypeValue("int"),)),
+                    annotate.TypeValue("None"),
+                ),
+            ),
+        )
+        == "TypeValue('Union', (TypeValue('set', (TypeValue('int'),)), TypeValue('None')))"
+    )
+
+
+def test_typevalue_eq() -> None:
+    assert annotate.TypeValue(
+        "Union",
+        (
+            annotate.TypeValue("set", (annotate.TypeValue("int"),)),
+            annotate.TypeValue("None"),
+        ),
+    ) == annotate.TypeValue(
+        "Union",
+        (
+            annotate.TypeValue("set", (annotate.TypeValue("int"),)),
+            annotate.TypeValue("None"),
+        ),
+    )
+
+
+def test_typevalue_super_eq() -> None:
+    assert (
+        annotate.TypeValue(
+            "Union",
+            (
+                annotate.TypeValue("set", (annotate.TypeValue("int"),)),
+                annotate.TypeValue("None"),
+            ),
+        )
+        != "potatoe"
+    )
+
+
 @pytest.mark.parametrize(
     ("items", "result"),
     [
@@ -90,6 +139,93 @@ def test_list_or(items: Collection[str], result: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("text", "tokens"),
+    [
+        (
+            "(int, float) -> str",
+            [
+                annotate.Separator("("),
+                annotate.DottedName("int"),
+                annotate.Separator(","),
+                annotate.DottedName("float"),
+                annotate.Separator(")"),
+                annotate.Separator("->"),
+                annotate.DottedName("str"),
+                annotate.End(),
+            ],
+        ),
+        (
+            "pytz.tzfile.America/Los_Angeles",
+            [
+                annotate.DottedName("datetime.tzinfo"),
+                annotate.End(),
+            ],
+        ),
+    ],
+)
+def test_tokenize(text: str, tokens: list[annotate.Token]) -> None:
+    result = annotate.tokenize(text)
+    if result != tokens:
+        print(f"{tokens}\n!=\n{result}")
+    assert result == tokens
+
+
+def test_invalid_tokenize() -> None:
+    with pytest.raises(
+        annotate.ParseError,
+        match="Could not parse '\\$HOME' from 'path.\\$HOME'",
+    ):
+        annotate.tokenize("path.$HOME")
+
+
+@pytest.mark.parametrize(
+    ("text", "tokens"),
+    [
+        (
+            "def test(value: int = -~ALL_BITS):",
+            [
+                annotate.Definition("def"),
+                annotate.FunctionName("test"),
+                annotate.EndSeparator("("),
+                annotate.ArgumentName("value"),
+                annotate.TypeDef(":"),
+                annotate.DottedName("int"),
+                annotate.DefaultDef("="),
+                annotate.ArgumentDefault("-~ALL_BITS"),
+                annotate.EndSeparator(")"),
+                annotate.EndDefinition(":"),
+                annotate.End(),
+            ],
+        ),
+    ],
+)
+def test_tokenize_definition(text: str, tokens: list[annotate.Token]) -> None:
+    lines = text.splitlines(True)
+
+    def get_line(line_no: int) -> str:
+        return lines[line_no]
+
+    result, _ = annotate.tokenize_definition(0, get_line)
+
+    if result != tokens:
+        print(f"{tokens}\n!=\n{result}")
+    assert result == tokens
+
+
+def test_invalid_tokenize_definition() -> None:
+    lines = "def def".splitlines(True)
+
+    def get_line(line_no: int) -> str:
+        return lines[line_no]
+
+    with pytest.raises(
+        annotate.ParseError,
+        match="Did not expect second definition keyword",
+    ):
+        annotate.tokenize_definition(0, get_line)
+
+
+@pytest.mark.parametrize(
     ("function_text", "arg_types", "return_type", "result"),
     [
         (
@@ -103,6 +239,28 @@ def test_list_or(items: Collection[str], result: str) -> None:
             ["int"],
             "str",
             """def format_id(user: int) -> str:""",
+        ),
+        (
+            """def format_name(name = "TEMP"):""",
+            ["str"],
+            "str",
+            """def format_name(name: str = "TEMP") -> str:""",
+        ),
+        (
+            """def sleep(time = 1 / 3):""",
+            ["float"],
+            "None",
+            """def sleep(time: float = 1 / 3) -> None:""",
+        ),
+        (
+            """def format_id(
+    user# format function inline comment
+):""",
+            ["int"],
+            "str",
+            """def format_id(
+    user: int  # format function inline comment
+) -> str:""",
         ),
         (
             """def foo(x: int, longer_name: str) -> None:""",
@@ -278,6 +436,60 @@ def test_list_or(items: Collection[str], result: str) -> None:
     get_line: Callable[[], str] = ...
 ) -> int | None:""",
         ),
+        (
+            """def test(value: int = -~ALL_BITS):""",
+            ["int"],
+            "None",
+            """def test(value: int = -~ALL_BITS) -> None:""",
+        ),
+        (
+            """def potatoe(
+    get_line = lambda lno: "",
+    lines = 0,
+):""",
+            ["Callable[[int], str]", "int"],
+            "bool",
+            """def potatoe(
+    get_line: Callable[[int], str] = lambda lno: "",
+    lines: int = 0,
+) -> bool:""",
+        ),
+        (
+            """def potatoe(
+    get_line = lambda lno, default: (default),
+    lines = 0,
+):""",
+            ["Callable[[int, str], str]", "int"],
+            "bool",
+            """def potatoe(
+    get_line: Callable[[int, str], str] = lambda lno, default: (default),
+    lines: int = 0,
+) -> bool:""",
+        ),
+        (
+            """def potatoe(
+    get_line: Callable[[int, str], str] = lambda lno, default: (default),
+    lines: int = 0,
+) -> bool:""",
+            ["Callable[[int, str], str]", "int"],
+            "bool",
+            """def potatoe(
+    get_line: Callable[[int, str], str] = lambda lno, default: (default),
+    lines: int = 0,
+) -> bool:""",
+        ),
+        (
+            """def wrapper(**kwargs) -> Any:""",
+            ["Any"],
+            "Any",
+            """def wrapper(**kwargs: Any) -> Any:""",
+        ),
+        (
+            """def frog(numbers = (2, 3)) -> int:""",
+            ["Tuple[int, int]"],
+            "int",
+            """def frog(numbers: tuple[int, int] = (2, 3)) -> int:""",
+        ),
     ],
 )
 def test_get_annotation(
@@ -300,3 +512,206 @@ def test_get_annotation(
     if returned != result:
         print(f"{returned}\n!=\n{result}")
     assert returned == result
+
+
+def test_get_annotation_tokenization_falure() -> None:
+    annotation_dict = {
+        "line": 0,
+    }
+
+    lines = "def def".splitlines(True)
+
+    def get_line(line_no: int) -> str:
+        return lines[line_no]
+
+    with pytest.raises(
+        annotate.ParseError,
+        match="Did not expect second definition keyword",
+    ):
+        annotate.get_annotation(annotation_dict, get_line)
+
+
+def test_get_annotation_tokenization_eof_falure() -> None:
+    annotation_dict = {
+        "line": 0,
+    }
+
+    lines = "def waffle() -> str".splitlines(True)
+
+    def get_line(line_no: int) -> str:
+        if line_no > 0:
+            return ""
+        return lines[line_no]
+
+    with pytest.raises(
+        annotate.ParseError,
+        match="Reached End of File, expected end of definition",
+    ):
+        annotate.get_annotation(annotation_dict, get_line)
+
+
+def test_parse_type_list_no_close_failure() -> None:
+    parser = annotate.Parser(
+        [annotate.DottedName("int"), annotate.DottedName("notend")],
+    )
+    with pytest.raises(
+        annotate.ParseError,
+        match="Expected \\) or \\], got 'notend'",
+    ):
+        parser.parse_type_list()
+
+
+def test_parse_union_list() -> None:
+    parser = annotate.Parser(
+        [
+            annotate.DottedName("int"),
+            annotate.Separator("|"),
+            annotate.DottedName("str"),
+            annotate.End(),
+        ],
+    )
+    parser.parse_union_list()
+
+
+def test_parse_single_no_empty_union_failure() -> None:
+    parser = annotate.Parser(
+        [
+            annotate.DottedName("Union"),
+            annotate.Separator("["),
+            annotate.Separator("]"),
+        ],
+    )
+    with pytest.raises(annotate.ParseError, match="No items in Union"):
+        parser.parse_single()
+
+
+def test_parse_single_no_null_collection_failure() -> None:
+    parser = annotate.Parser(
+        [
+            annotate.DottedName(),
+        ],
+    )
+    with pytest.raises(
+        annotate.ParseError,
+        match="Expected token text to be string, got None",
+    ):
+        parser.parse_single()
+
+
+def test_peek_out_of_tokens_failure() -> None:
+    parser = annotate.Parser([])
+    with pytest.raises(
+        annotate.ParseError,
+        match="Ran out of tokens",
+    ):
+        parser.peek()
+
+
+def test_expect_failure() -> None:
+    parser = annotate.Parser([annotate.DottedName("waffle")])
+    with pytest.raises(
+        annotate.ParseError,
+        match="Expected 'def', got 'waffle'",
+    ):
+        parser.expect("def")
+
+
+def test_expect_type_failure() -> None:
+    parser = annotate.Parser([annotate.DottedName("waffle")])
+    with pytest.raises(
+        annotate.ParseError,
+        match="Expected 'ReturnTypeDef', got DottedName\\(text='waffle'\\)",
+    ):
+        parser.expect_type(annotate.ReturnTypeDef)
+
+
+def test_expect_type_multi_failure() -> None:
+    parser = annotate.Parser([annotate.DottedName("waffle")])
+    with pytest.raises(
+        annotate.ParseError,
+        match="Expected 'ReturnTypeDef' or 'Separator', got DottedName\\(text='waffle'\\)",
+    ):
+        parser.expect_type((annotate.ReturnTypeDef, annotate.Separator))
+
+
+@pytest.mark.parametrize(
+    ("tokens", "value"),
+    [
+        (
+            [
+                annotate.DottedName("mypy_extensions.NoReturn"),
+            ],
+            annotate.TypeValue("NoReturn"),
+        ),
+        (
+            [
+                annotate.DottedName("typing.NoReturn"),
+            ],
+            annotate.TypeValue("NoReturn"),
+        ),
+        (
+            [
+                annotate.DottedName("Tuple"),
+                annotate.Separator("["),
+                annotate.DottedName("int"),
+                annotate.Separator(","),
+                annotate.DottedName("str"),
+                annotate.Separator("]"),
+            ],
+            annotate.TypeValue(
+                "Tuple",
+                (
+                    annotate.TypeValue("int"),
+                    annotate.TypeValue("str"),
+                ),
+            ),
+        ),
+        (
+            [
+                annotate.DottedName("Union"),
+                annotate.Separator("["),
+                annotate.DottedName("int"),
+                annotate.Separator("]"),
+            ],
+            annotate.TypeValue("int"),
+        ),
+        (
+            [
+                annotate.DottedName("Optional"),
+                annotate.Separator("["),
+                annotate.DottedName("int"),
+                annotate.Separator("]"),
+            ],
+            annotate.TypeValue(
+                "Union",
+                (annotate.TypeValue("int"), annotate.TypeValue("None")),
+            ),
+        ),
+        (
+            [
+                annotate.DottedName("Callable"),
+                annotate.Separator("["),
+                annotate.Separator("["),
+                annotate.Separator("]"),
+                annotate.Separator(","),
+                annotate.DottedName("int"),
+                annotate.Separator("]"),
+            ],
+            annotate.TypeValue(
+                "Callable",
+                (annotate.TypeValue("[]"), annotate.TypeValue("int")),
+            ),
+        ),
+    ],
+)
+def test_parse_single(
+    tokens: list[annotate.Token],
+    value: annotate.TypeValue,
+) -> None:
+    parser = annotate.Parser(tokens)
+
+    result = parser.parse_single()
+
+    if value != result:
+        print(f"{value}\n!=\n{result}")
+    assert result == result
