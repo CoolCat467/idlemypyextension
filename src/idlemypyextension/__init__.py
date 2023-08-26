@@ -7,10 +7,10 @@ from __future__ import annotations
 __title__ = "idlemypyextension"
 __author__ = "CoolCat467"
 __license__ = "GPLv3"
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __ver_major__ = 0
 __ver_minor__ = 2
-__ver_patch__ = 0
+__ver_patch__ = 1
 
 import json
 import math
@@ -18,7 +18,7 @@ import os
 import re
 import sys
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import partial, wraps
 from idlelib import search, searchengine
@@ -47,7 +47,7 @@ except ImportError:
 
 def debug(message: str) -> None:
     """Print debug message."""
-    # TODO: Censor username
+    # TODO: Censor username/user files
     print(f"\n[{__title__}] DEBUG: {message}")
 
 
@@ -134,14 +134,15 @@ def get_line_col(index: str) -> tuple[int, int]:
 
 def get_line_indent(text: str, char: str = " ") -> int:
     """Return line indent."""
-    for idx, cur in enumerate(text.split(char)):
-        if cur != "":
-            return idx
-    return 0
+    index = -1
+    for index, cur_char in enumerate(text):
+        if cur_char != char:
+            return index
+    return index + 1
 
 
 def ensure_section_exists(section: str) -> bool:
-    """Ensure section exists in user extensions configuration/.
+    """Ensure section exists in user extensions configuration.
 
     Returns True if edited.
     """
@@ -149,28 +150,6 @@ def ensure_section_exists(section: str) -> bool:
         idleConf.userCfg["extensions"].AddSection(section)
         return True
     return False
-
-
-F = TypeVar("F", bound=Callable[..., Any])
-
-
-def undo_block(func: F) -> F:
-    """Mark block of edits as a single undo block."""
-
-    @wraps(func)
-    def undo_wrapper(
-        self: idlemypyextension,
-        *args: Any,
-        **kwargs: Any,
-    ) -> Any:
-        """Wrap function in start and stop undo events."""
-        self.undo.undo_block_start()
-        try:
-            return func(self, *args, **kwargs)
-        finally:
-            self.undo.undo_block_stop()
-
-    return cast(F, undo_wrapper)
 
 
 def ensure_values_exist_in_section(
@@ -213,6 +192,28 @@ def set_search_engine_params(
     for name in ("pat", "re", "case", "word", "wrap", "back"):
         if name in data:
             getattr(engine, f"{name}var").set(data[name])
+
+
+F = TypeVar("F", bound=Callable[..., object])
+
+
+def undo_block(func: F) -> F:
+    """Mark block of edits as a single undo block."""
+
+    @wraps(func)
+    def undo_wrapper(
+        self: idlemypyextension,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        """Wrap function in start and stop undo events."""
+        self.undo.undo_block_start()
+        try:
+            return func(self, *args, **kwargs)
+        finally:
+            self.undo.undo_block_stop()
+
+    return cast(F, undo_wrapper)
 
 
 @dataclass(slots=True)
@@ -547,13 +548,13 @@ class idlemypyextension:  # noqa: N801
         line = messages[0].line
         file = messages[0].file
 
-        # Figure out line intent
-        line_text = self.get_line(line + 1)
-        indent = get_line_indent(line_text)
-        line_len = len(line_text)
+        # Figure out next line intent
+        next_line_text = self.get_line(line + 1)
+        indent = get_line_indent(next_line_text)
+
+        lastcol = len(self.get_msg_line(indent, ""))
 
         columns: set[int] = set()
-        lastcol = len(self.comment) + indent + 1
 
         for message in messages:
             if message.line != line:
@@ -563,15 +564,15 @@ class idlemypyextension:  # noqa: N801
             if message.column_end is None:
                 end = message.column
             else:
-                end = message.column_end - lastcol
+                end = message.column_end
             for col in range(message.column, end + 1):
                 columns.add(col)
 
         new_line = ""
         for col in sorted(columns):
-            if col > line_len:
-                break
-            spaces = col - lastcol - 1
+            spaces = (col - lastcol) - 1
+            if spaces < 0:
+                continue
             new_line += " " * spaces + "^"
             lastcol = col
 
@@ -639,10 +640,13 @@ class idlemypyextension:  # noqa: N801
         return comments
 
     @undo_block
-    def add_errors(self, file: str, start_line: int, errors: str) -> None:
-        """Add errors to file."""
-        lines = errors.splitlines()
-        lines[0] = f"Error running mypy: {lines[0]}"
+    def add_lines(
+        self,
+        file: str,
+        start_line: int,
+        lines: Sequence[str],
+    ) -> None:
+        """Add extra lines to file, in order as they appear top to bottom."""
         for message in reversed(lines):
             self.add_comment(
                 Message(
@@ -652,6 +656,29 @@ class idlemypyextension:  # noqa: N801
                 ),
                 len(lines),
             )
+
+    def add_extra_data(
+        self,
+        file: str,
+        start_line: int,
+        data: str,
+        prefix: str = "",
+    ) -> None:
+        """Add extra data to file as a big block of comments."""
+        lines = data.splitlines()
+        if not lines:
+            return
+        lines[0] = f"{prefix}{lines[0]}"
+        self.add_lines(file, start_line, lines)
+
+    def add_errors(self, file: str, start_line: int, errors: str) -> None:
+        """Add error lines to file."""
+        self.add_extra_data(
+            file,
+            start_line,
+            errors,
+            prefix="Error running mypy: ",
+        )
 
     def ask_save_dialog(self) -> bool:
         """Ask to save dialog stolen from idlelib.runscript.ScriptBinding."""
@@ -687,26 +714,30 @@ class idlemypyextension:  # noqa: N801
 
         # Only stop if running
         response = await client.stop(self.status_file)
-        if any(v in response and response[v] for v in ("err", "error")):
+        if response.get("err") or response.get("error"):
             # Kill
             client.kill(self.status_file)
 
         return "break"
 
-    async def check(self, file: str) -> dict[str, Any]:
+    async def check(self, file: str) -> client.Response:
         """Preform dmypy check."""
         if not await self.ensure_daemon_running():
-            return {"out": "", "err": "Error: Could not start mypy daemon"}
+            return client.Response(
+                {"out": "", "err": "Error: Could not start mypy daemon"},
+            )
         flags = self.flags
         flags += [file]
         # debug(f"check {flags = }")
         command = " ".join(
             [
                 "dmypy",
-                f"--status-file={self.status_file}",
-                f"--log-file={self.log_file}",
+                f'--status-file="{self.status_file}"',
                 "run",
-                file,
+                f"--timeout={self.daemon_timeout}",
+                f'--log-file="{self.log_file}"',
+                "--export-types",
+                f'"{file}"',
                 "--",
                 *self.flags,
             ],
@@ -723,17 +754,18 @@ class idlemypyextension:  # noqa: N801
 
     def get_suggestion_text(
         self,
-        annotation: dict[str, Any],
+        annotation: dict[str, object],
     ) -> tuple[str | None, int]:
         """Get suggestion text from annotation.
 
         Return None on error or no difference, text if different
         """
-        while annotation["line"] >= 0 and "def" not in self.get_line(
-            annotation["line"],
-        ):
-            annotation["line"] -= 1
+        # while annotation["line"] >= 0 and "def" not in self.get_line(
+        #     annotation["line"],
+        # ):
+        #     annotation["line"] -= 1
         line = annotation["line"]
+        assert isinstance(line, int)
 
         try:
             text, line_count = annotate.get_annotation(
@@ -769,7 +801,9 @@ class idlemypyextension:  # noqa: N801
     async def suggest(self, file: str, line: int) -> None:
         """Preform dmypy suggest."""
         if not await self.ensure_daemon_running():
-            response = {"err": "Error: Could not start mypy daemon"}
+            response = client.Response(
+                {"err": "Error: Could not start mypy daemon"},
+            )
         else:
             function = f"{file}:{line}"
             response = await client.suggest(
@@ -780,18 +814,17 @@ class idlemypyextension:  # noqa: N801
             )
         # debug(f'suggest {response = }')
 
-        normal = ""
         errors = ""
         if "error" in response:
             errors += response["error"]
         if "err" in response:
             if errors:
-                errors += "\n"
+                errors += "\n\n"
             errors += response["err"]
         if "stderr" in response:
-            if normal:
-                normal += "\n"
-            normal += response["stderr"]
+            if errors:
+                errors += "\n\nstderr:\n"
+            errors += response["stderr"]
 
         # Display errors
         if errors:
@@ -934,32 +967,28 @@ class idlemypyextension:  # noqa: N801
 
         debug(f"type check {response = }")
 
-        normal = ""
-        errors = ""
         if "out" in response:
-            normal = response["out"]
-        if "error" in response:
-            errors += response["error"]
-        if "err" in response:
-            if errors:
-                errors += "\n"
-            errors += response["err"]
-        if "stdout" in response:
-            if normal:
-                normal += "\n"
-            normal += response["stdout"]
-        if "stderr" in response:
-            if normal:
-                normal += "\n"
-            normal += response["stderr"]
-
-        if normal:
             # Add code comments
-            self.add_comments(file, self.editwin.getlineno(), normal)
-
-        if errors:
-            # Add mypy errors
-            self.add_errors(file, self.editwin.getlineno(), errors)
+            self.add_comments(file, self.editwin.getlineno(), response["out"])
+        if "error" in response:
+            self.add_errors(file, self.editwin.getlineno(), response["error"])
+        if "err" in response:
+            # Add mypy run errors
+            self.add_errors(file, self.editwin.getlineno(), response["err"])
+        if "stdout" in response:
+            self.add_extra_data(
+                file,
+                self.editwin.getlineno(),
+                response["stdout"],
+                prefix="dmypy run stdout: ",
+            )
+        if "stderr" in response:
+            self.add_extra_data(
+                file,
+                self.editwin.getlineno(),
+                response["stderr"],
+                prefix="dmypy run stderr: ",
+            )
 
         # Make bell sound so user knows we are done,
         # as it freezes a bit while mypy looks at the file

@@ -76,9 +76,11 @@ class ImportGuardContextManager:
         index = 0
         while index < len(sys.path):
             if not sys.path[index]:
-                sys.path.pop(index)
+                path = sys.path.pop(index)
+                print(f"[DEBUG] popped {path = }")
                 continue
             index += 1
+        print(f"[DEBUG] {sys.path = }")
 
         if "idlelib" not in sys.modules:
             # We are in before IDLE, we should be safe
@@ -93,7 +95,8 @@ class ImportGuardContextManager:
         index = 0
         while index < max_read:
             if does_path_interfere(sys.path[index], self.modules):
-                sys.path.pop(index)
+                path = sys.path.pop(index)
+                print(f"[DEBUG] popped sys.{path = }")
                 continue
             index += 1
 

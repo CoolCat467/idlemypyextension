@@ -37,7 +37,7 @@ rather than having to read it back from disk on each run.
 
 from __future__ import annotations
 
-__title__ = "Mypy Daemon Asynchronous Client"
+__title__ = "Mypy Daemon Client"
 __license__ = "MIT"
 
 import contextlib
@@ -46,7 +46,7 @@ import json
 import os
 import time
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import trio
 from mypy.dmypy_os import alive as _alive, kill as _kill
@@ -58,8 +58,36 @@ from mypy.dmypy_server import (
 from mypy.ipc import IPCClient as _IPCClient, IPCException as _IPCException
 from mypy.version import __version__
 
+if TYPE_CHECKING:
+    from typing_extensions import NotRequired
 
-async def _receive(connection: _IPCClient) -> Any:
+
+def debug(message: str) -> None:
+    """Print debug message."""
+    # TODO: Censor username/user files
+    print(f"\n[{__title__}] DEBUG: {message}")
+
+
+class Response(TypedDict):
+    """Response dictionary from dmypy."""
+
+    platform: NotRequired[str]
+    python_version: NotRequired[str]
+    out: NotRequired[str]
+    err: NotRequired[str]
+    stdout: NotRequired[str]
+    stderr: NotRequired[str]
+    error: NotRequired[str]
+    memory_psutil_missing: NotRequired[str]
+    memory_rss_mib: NotRequired[float]
+    memory_vms_mib: NotRequired[float]
+    memory_maxrss_mib: NotRequired[float]
+    restart: NotRequired[str]
+    status: NotRequired[int]
+    stats: NotRequired[object]
+
+
+async def _receive(connection: _IPCClient) -> Response:
     """Receive JSON data from a connection until EOF.
 
     Raise OSError if the data received is not valid JSON or if it is
@@ -71,11 +99,11 @@ async def _receive(connection: _IPCClient) -> Any:
         raise OSError("No data received")
     try:
         data = json.loads(bdata.decode("utf8"))
-    except Exception as e:
-        raise OSError("Data received is not valid JSON") from e
+    except Exception as ex:
+        raise OSError("Data received is not valid JSON") from ex
     if not isinstance(data, dict):
-        raise OSError(f"Data received is not a dict ({type(data)})")
-    return data
+        raise OSError(f"Data received is not a dict (got {type(data)})")
+    return cast(Response, data)
 
 
 class BadStatusError(Exception):
@@ -110,7 +138,7 @@ def _read_status(status_file: str) -> dict[str, object]:
     return data
 
 
-def _check_status(data: dict[str, Any]) -> tuple[int, str]:
+def _check_status(data: dict[str, object]) -> tuple[int, str]:
     """Check if the process is alive.
 
     Return (process id, connection_name) on success.
@@ -149,7 +177,7 @@ async def request(
     *,
     timeout: int | None = None,
     **kwds: object,
-) -> dict[str, Any]:
+) -> Response:
     """Send a request to the daemon.
 
     Return the JSON dict with the response.
@@ -161,7 +189,6 @@ async def request(
     raised OSError.  This covers cases such as connection refused or
     closed prematurely as well as invalid JSON received.
     """
-    response: dict[str, str] = {}
     args = dict(kwds)
     args["command"] = command
     # Tell the server whether this request was initiated from a
@@ -175,10 +202,9 @@ async def request(
         with _IPCClient(name, timeout) as client:
             async_client = trio.wrap_file(cast(io.BytesIO, client))
             await async_client.write(bdata)
-            response = await _receive(client)
+            return await _receive(client)
     except (OSError, _IPCException, ValueError) as err:
         return {"error": str(err)}
-    return response
 
 
 def is_running(status_file: str) -> bool:
@@ -190,7 +216,7 @@ def is_running(status_file: str) -> bool:
     return True
 
 
-async def stop(status_file: str) -> dict[str, Any]:
+async def stop(status_file: str) -> Response:
     """Stop daemon via a 'stop' request."""
     return await request(status_file, "stop", timeout=5)
 
@@ -293,7 +319,7 @@ async def status(
     *,
     timeout: int = 5,
     fswatcher_dump_file: str | None = None,
-) -> dict[str, object]:
+) -> Response:
     """Ask daemon to return status."""
     return await request(
         status_file,
@@ -311,21 +337,20 @@ async def run(
     daemon_timeout: int = 0,
     log_file: str | None = None,
     export_types: bool = False,
-) -> dict[str, Any]:
+) -> Response:
     """Do a check, starting (or restarting) the daemon as necessary.
 
     Restarts the daemon if the running daemon reports that it is
     required (due to a configuration change, for example).
     """
-    if not is_running(status_file):
-        # Bad or missing status file or dead process; good to start.
-        await _start_server(
-            status_file,
-            flags=flags,
-            daemon_timeout=daemon_timeout,
-            allow_sources=True,
-            log_file=log_file,
-        )
+    # Start if missing status file or dead process
+    await start(
+        status_file=status_file,
+        flags=flags,
+        daemon_timeout=daemon_timeout,
+        allow_sources=True,
+        log_file=log_file,
+    )
     response = await request(
         status_file,
         "run",
@@ -336,6 +361,7 @@ async def run(
     )
     # If the daemon signals that a restart is necessary, do it
     if "restart" in response:
+        debug(f'Restarting: "{response["restart"]}"')
         await restart(
             status_file,
             flags=flags,
@@ -343,7 +369,7 @@ async def run(
             allow_sources=True,
             log_file=log_file,
         )
-        response = await request(
+        return await request(
             status_file,
             "run",
             timeout=timeout,
@@ -371,7 +397,7 @@ async def check(
     *,
     timeout: int | None = None,
     export_types: bool = False,
-) -> dict[str, Any]:
+) -> Response:
     """Ask the daemon to check a list of files."""
     return await request(
         status_file,
@@ -389,7 +415,7 @@ async def recheck(
     timeout: int | None = None,
     remove: list[str] | None = None,
     update: list[str] | None = None,
-) -> dict[str, Any]:
+) -> Response:
     """Ask the daemon to recheck the previous list of files.
 
     If at least one of --remove or --update is given, the server will
@@ -433,7 +459,7 @@ async def inspect(
     include_object_attrs: bool = False,
     union_attrs: bool = False,
     force_reload: bool = False,
-) -> dict[str, Any]:
+) -> Response:
     """Ask daemon to print the type of an expression."""
     return await request(
         status_file,
@@ -463,7 +489,7 @@ async def suggest(
     flex_any: float | None = None,
     use_fixme: str | None = None,
     max_guesses: int | None = 64,
-) -> dict[str, Any]:
+) -> Response:
     """Ask the daemon for a suggested signature."""
     return await request(
         status_file,
@@ -480,7 +506,7 @@ async def suggest(
     )
 
 
-async def hang(status_file: str, *, timeout: int = 1) -> dict[str, Any]:
+async def hang(status_file: str, *, timeout: int = 1) -> Response:
     """Hang for 100 seconds, as a debug hack."""
     if not isinstance(timeout, int):
         raise ValueError("Timeout must be an integer!")

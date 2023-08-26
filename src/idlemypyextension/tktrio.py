@@ -180,14 +180,11 @@ class TkTrioRunner:
             return True
         return False
 
-    def run_async_task(self, function: Callable[[], Awaitable[Any]]) -> None:
-        """Start trio guest mode run for given async function."""
-        if self.run_status != RunStatus.NO_TASK:
-            raise RuntimeError(
-                "Each host loop can only have one guest run at a time",
-            )
-        self.run_status = RunStatus.TRIO_RUNNING
-
+    def _start_async_task(
+        self,
+        function: Callable[[], Awaitable[Any]],
+    ) -> None:
+        """Internal start task running so except block can catch errors."""
         # evil_spawn = False
         if evil_does_trio_have_runner():
             self.show_warning_trio_already_running()
@@ -219,6 +216,21 @@ class TkTrioRunner:
             run_sync_soon_threadsafe=self.schedule_task,
             done_callback=self.call_on_trio_done,
         )
+
+    def run_async_task(self, function: Callable[[], Awaitable[Any]]) -> None:
+        """Start trio guest mode run for given async function."""
+        if self.run_status != RunStatus.NO_TASK:
+            raise RuntimeError(
+                "Each host loop can only have one guest run at a time",
+            )
+
+        self.run_status = RunStatus.TRIO_RUNNING
+
+        try:
+            self._start_async_task(function)
+        except Exception as ex:
+            self.run_status = RunStatus.NO_TASK
+            print_exception(ex, limit=-1)
 
     def get_del_window_proto(
         self,

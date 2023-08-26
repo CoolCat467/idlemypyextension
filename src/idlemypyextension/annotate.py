@@ -208,8 +208,7 @@ def tokenize(txt: str) -> list[Token]:
 
 def get_line_indent(text: str, char: str = " ") -> int:
     """Return line indent."""
-    if not text:
-        return 0
+    index = -1
     for index, cur_char in enumerate(text):
         if cur_char != char:
             return index
