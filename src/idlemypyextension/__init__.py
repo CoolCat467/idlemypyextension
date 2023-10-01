@@ -7,10 +7,10 @@ from __future__ import annotations
 __title__ = "idlemypyextension"
 __author__ = "CoolCat467"
 __license__ = "GPLv3"
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 __ver_major__ = 0
 __ver_minor__ = 2
-__ver_patch__ = 1
+__ver_patch__ = 2
 
 import json
 import math
@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from functools import partial, wraps
 from idlelib import search, searchengine
 from idlelib.config import idleConf
+from idlelib.editor import EditorWindow
 from idlelib.format import FormatRegion
 from idlelib.iomenu import IOBinding
 from idlelib.pyshell import PyShellEditorWindow, PyShellFileList
@@ -77,8 +78,18 @@ def get_required_config(
 def check_installed() -> bool:
     """Make sure extension installed."""
     # Get list of system extensions
-    extensions = list(idleConf.defaultCfg["extensions"])
+    extensions = set(idleConf.defaultCfg["extensions"])
+
+    # Do we have the user extend extension?
+    has_user = "idleuserextend" in idleConf.GetExtensions(active_only=True)
+
+    # If we don't, things get messy and we need to change the root config file
     ex_defaults = idleConf.defaultCfg["extensions"].file
+    if has_user:
+        # Otherwise, idleuserextend patches IDLE and we only need to modify
+        # the user config file
+        ex_defaults = idleConf.userCfg["extensions"].file
+        extensions |= set(idleConf.userCfg["extensions"])
 
     # Import this extension (this file),
     module = __import__(__title__)
@@ -112,8 +123,10 @@ def check_installed() -> bool:
         # Make sure line-breaks will go properly in terminal
         add_data = required_config.replace("\n", "\\n")
         # Tell them the command
-        print(f"echo -e '{add_data}' | sudo tee -a {ex_defaults}")
-        print()
+        append = "| sudo tee -a"
+        if has_user:
+            append = ">>"
+        print(f"echo -e '{add_data}' {append} {ex_defaults}\n")
     else:
         print(f"Configuration should be good! (v{__version__})")
         return True
@@ -374,8 +387,8 @@ class idlemypyextension:  # noqa: N801
             "--no-error-summary",
             "--soft-error-limit=-1",
             "--show-traceback",
-            f"--cache-dir={self.mypy_folder}",
-            # f"--log-file={self.log_file}",
+            f'--cache-dir="{self.mypy_folder}"',
+            # f'--log-file="{self.log_file}"',
             # "--cache-fine-grained",
         }
         if self.daemon_flags == "None":
@@ -387,12 +400,20 @@ class idlemypyextension:  # noqa: N801
                 extra.add(value)
         return list(base | extra)
 
+    @property
+    def typecomment_only_current_file(self) -> bool:
+        """Should only add type comments for currently open file?."""
+        return True
+
     @classmethod
     def ensure_bindings_exist(cls) -> bool:
         """Ensure key bindings exist in user extensions configuration.
 
         Return True if need to save.
         """
+        if not cls.bind_defaults:
+            return False
+
         need_save = False
         section = f"{cls.__name__}_cfgBindings"
         if ensure_section_exists(section):
@@ -417,10 +438,10 @@ class idlemypyextension:  # noqa: N801
     @classmethod
     def reload(cls) -> None:
         """Load class variables from configuration."""
-        # # Ensure file default values exist so they appear in settings menu
-        # save = cls.ensure_configuration_exists()
-        # if cls.ensure_bindings_exist() or save:
-        #     idleConf.SaveUserCfgFiles()
+        # Ensure file default values exist so they appear in settings menu
+        save = cls.ensure_config_exists()
+        if cls.ensure_bindings_exist() or save:
+            idleConf.SaveUserCfgFiles()
 
         # Reload configuration file
         idleConf.LoadCfgFiles()
@@ -443,30 +464,49 @@ class idlemypyextension:  # noqa: N801
         strindent = " " * indent
         return f"{strindent}{cls.comment}{msg}"
 
-    def get_line(self, line: int) -> str:
+    def get_line(self, line: int, text_win: Text | None = None) -> str:
         """Get the characters from the given line in currently open file."""
-        chars: str = self.text.get(*get_line_selection(line))
+        if text_win is None:
+            text_win = self.text
+        chars: str = text_win.get(*get_line_selection(line))
         return chars
 
-    def comment_exists(self, line: int, text: str) -> bool:
+    def comment_exists(
+        self,
+        line: int,
+        comment: str,
+        text_win: Text | None = None,
+    ) -> bool:
         """Return True if comment for message already exists on line."""
-        return self.get_msg_line(0, text) in self.get_line(line - 1)
+        return self.get_msg_line(0, comment) in self.get_line(
+            line - 1,
+            text_win=text_win,
+        )
 
     def add_comment(self, message: Message, max_exist_up: int = 0) -> bool:
         """Return True if added new comment, False if already exists."""
         # Get line and message from output
-        # file = message.file
+        file = message.file
         line = message.line
         msg = message.message
+
+        editwin: EditorWindow = self.editwin
+
+        open_file: str | None = self.files.filename
+        if open_file is None or os.path.abspath(open_file) != file:
+            opened = self.flist.open(file)
+            if opened is None:
+                return False
+            editwin = opened
 
         # If there is already a comment from us there, ignore that line.
         # +1-1 is so at least up by 1 is checked, range(0) = []
         for i in range(max_exist_up + 1):
-            if self.comment_exists(line - (i - 1), msg):
+            if self.comment_exists(line - (i - 1), msg, editwin.text):
                 return False
 
         # Get line checker is talking about
-        chars = self.get_line(line)
+        chars = self.get_line(line, editwin.text)
 
         # Figure out line indent
         indent = get_line_indent(chars)
@@ -476,8 +516,8 @@ class idlemypyextension:  # noqa: N801
 
         # Save changes
         start, end = get_line_selection(line)
-        self.text.delete(start, end)
-        self.text.insert(start, chars, ())
+        editwin.text.delete(start, end)
+        editwin.text.insert(start, chars, ())
         return True
 
     @staticmethod
@@ -582,80 +622,119 @@ class idlemypyextension:  # noqa: N801
         return Message(file=file, line=line + 1, message=new_line)
 
     @undo_block
-    def add_comments(
+    def add_messages(
+        self,
+        messages: Sequence[Message],
+    ) -> list[int]:
+        """Add messages to file(s)."""
+        commented_lines = []
+        total = len(messages)
+        for message in reversed(messages):
+            if self.add_comment(message, total):
+                commented_lines.append(message.line)
+        return commented_lines
+
+    def add_type_comments_for_file(
         self,
         target_filename: str,
+        files: dict[str, list[Message]],
+        start_line: int,
+    ) -> list[int]:
+        """Add type comments for a target file."""
+        # Only handling messages for target filename
+        line_data: dict[int, list[Message]] = {}
+        for message in files.get(target_filename, ()):
+            if message.line not in line_data:
+                line_data[message.line] = []
+            line_data[message.line].append(message)
+
+        line_order: list[int] = sorted(line_data)
+
+        first_line = start_line
+        if line_order:
+            first_line = line_order[-1]
+        else:
+            line_data[first_line] = []
+            line_order.append(first_line)
+
+        if self.typecomment_only_current_file:
+            for filename in files:
+                if filename == target_filename:
+                    continue
+                line_data[first_line].append(
+                    Message(
+                        file=target_filename,
+                        line=first_line,
+                        message=f"note: Another file has errors: {filename}",
+                        column_end=0,
+                        msg_type="note",
+                    ),
+                )
+
+        all_messages = []
+        for line in line_order:
+            messages = line_data[line]
+            if not messages:
+                continue
+            all_messages.extend(messages)
+            pointers = self.get_pointers(messages)
+            if pointers is not None:
+                all_messages.append(pointers)
+
+        return self.add_messages(all_messages)
+
+    def add_comments(
+        self,
         start_line: int,
         normal: str,
-    ) -> list[int]:
-        """Add comments for target filename, return list of comments added."""
+        only_filename: str | None = None,
+    ) -> dict[str, list[int]]:
+        """Add comments for target filename.
+
+        Return list of lines where comments were added.
+        """
         assert self.files.filename is not None
+
         files = self.parse_comments(
             normal,
             os.path.abspath(self.files.filename),
             start_line,
         )
 
-        # Only handling messages for target filename
-        line_data: dict[int, list[Message]] = {}
-        if target_filename in files:
-            for message in files[target_filename]:
-                if message.line not in line_data:
-                    line_data[message.line] = []
-                line_data[message.line].append(message)
+        file_commented_lines: dict[str, list[int]] = {}
 
-        line_order: list[int] = sorted(line_data, reverse=True)
-        first: int = line_order[-1] if line_order else start_line
+        to_comment = list(files)
 
-        if first not in line_data:  # if used starting line
-            line_data[first] = []
-            line_order.append(first)
+        if self.typecomment_only_current_file:
+            assert only_filename is not None
+            to_comment = [only_filename]
 
-        for filename in files:
-            if filename == target_filename:
-                continue
-            line_data[first].append(
-                Message(
-                    file=target_filename,
-                    line=first,
-                    message=f"note: Another file has errors: {filename}",
-                    column_end=0,
-                    msg_type="note",
-                ),
+        for target_filename in to_comment:
+            commented_lines = self.add_type_comments_for_file(
+                target_filename,
+                files,
+                start_line,
             )
+            file_commented_lines[target_filename] = commented_lines
+        return file_commented_lines
 
-        comments = []
-        for line in line_order:
-            messages = line_data[line]
-            if not messages:
-                continue
-            pointers = self.get_pointers(messages)
-            if pointers is not None:
-                messages.append(pointers)
-
-            total = len(messages)
-            for message in reversed(messages):
-                if self.add_comment(message, total):
-                    comments.append(line)
-        return comments
-
-    @undo_block
     def add_lines(
         self,
         file: str,
         start_line: int,
         lines: Sequence[str],
-    ) -> None:
-        """Add extra lines to file, in order as they appear top to bottom."""
-        for message in reversed(lines):
-            self.add_comment(
+    ) -> list[int]:
+        """Add lines to file, in order as they appear top to bottom."""
+        return self.add_messages(
+            [
                 Message(
                     file=file,
                     line=start_line,
                     message=message,
-                ),
-                len(lines),
-            )
+                )
+                for message in lines
+            ],
+        )
 
     def add_extra_data(
         self,
@@ -663,17 +742,33 @@ class idlemypyextension:  # noqa: N801
         start_line: int,
         data: str,
         prefix: str = "",
-    ) -> None:
-        """Add extra data to file as a big block of comments."""
+    ) -> tuple[int, list[int]]:
+        """Add extra data to file as a big block of comments.
+
+        Returns
+        -------
+        Tuple of:
+        - Number of lines attempted to add
+        - List of line numbers added that were not already there
+        otherwise None because no content.
+        """
+        if not data:
+            return 0, []
         lines = data.splitlines()
         if not lines:
-            return
+            return 0, []
         lines[0] = f"{prefix}{lines[0]}"
-        self.add_lines(file, start_line, lines)
+        added = self.add_lines(file, start_line, lines)
+        return len(lines), added
 
-    def add_errors(self, file: str, start_line: int, errors: str) -> None:
+    def add_errors(
+        self,
+        file: str,
+        start_line: int,
+        errors: str,
+    ) -> tuple[int, list[int]]:
         """Add error lines to file."""
-        self.add_extra_data(
+        return self.add_extra_data(
             file,
             start_line,
             errors,
@@ -772,7 +867,7 @@ class idlemypyextension:  # noqa: N801
                 annotation,
                 self.get_line,
             )
-        except annotate.ParseError as ex:
+        except Exception as ex:
             ex_text, ex_traceback = sys.exc_info()[1:]
             traceback.print_exception(
                 None,  # Ignored since python 3.5
@@ -815,16 +910,16 @@ class idlemypyextension:  # noqa: N801
         # debug(f'suggest {response = }')
 
         errors = ""
-        if "error" in response:
+        if response.get("error"):
             errors += response["error"]
-        if "err" in response:
+        if response.get("err"):
             if errors:
                 errors += "\n\n"
             errors += response["err"]
-        if "stderr" in response:
+        if response.get("stderr"):
             if errors:
-                errors += "\n\nstderr:\n"
-            errors += response["stderr"]
+                errors += "\n\n"
+            errors += f'stderr:\n{response["stderr"]}'
 
         # Display errors
         if errors:
@@ -894,7 +989,7 @@ class idlemypyextension:  # noqa: N801
         self.text.bell()
 
     def initial(self) -> tuple[str | None, str | None]:
-        """Do common initial setup. Return error or none, file, and start line.
+        """Do common initial setup. Return error or none, file.
 
         Reload configuration, make sure file is saved,
         and make sure mypy is installed
@@ -953,23 +1048,17 @@ class idlemypyextension:  # noqa: N801
 
         return "break"
 
-    async def type_check_event_async(self, event: Event[Any]) -> str:
-        """Preform a mypy check and add comments."""
-        init_return, file = self.initial()
-
-        if init_return is not None:
-            return init_return
-        if file is None:
-            return "break"
-
-        # Run mypy on open file
-        response = await self.check(file)
-
+    def type_check_add_response_comments(
+        self,
+        response: client.Response,
+        file: str,
+    ) -> None:
+        """Add all the comments (error and regular) from dmypy response."""
         debug(f"type check {response = }")
 
         if "out" in response:
             # Add code comments
-            self.add_comments(file, self.editwin.getlineno(), response["out"])
+            self.add_comments(self.editwin.getlineno(), response["out"], file)
         if "error" in response:
             self.add_errors(file, self.editwin.getlineno(), response["error"])
         if "err" in response:
@@ -993,6 +1082,20 @@ class idlemypyextension:  # noqa: N801
         # Make bell sound so user knows we are done,
         # as it freezes a bit while mypy looks at the file
         self.text.bell()
+
+    async def type_check_event_async(self, event: Event[Any]) -> str:
+        """Preform a mypy check and add comments."""
+        init_return, file = self.initial()
+
+        if init_return is not None:
+            return init_return
+        if file is None:
+            return "break"
+
+        # Run mypy on open file
+        response = await self.check(file)
+
+        self.type_check_add_response_comments(response, file)
         return "break"
 
     @undo_block
@@ -1000,22 +1103,20 @@ class idlemypyextension:  # noqa: N801
         """Remove selected mypy comments."""
         # pylint: disable=unused-argument
         # Get selected region lines
-        head, tail, chars, lines = self.formatter.get_region()
-        if self.comment not in chars:
+        head, _tail, chars, lines = self.formatter.get_region()
+        region_start, _col = get_line_col(head)
+
+        edited = False
+        for index, line_text in reversed(tuple(enumerate(lines))):
+            # If after indent there is mypy comment
+            if line_text.lstrip().startswith(self.comment):
+                # If so, remove line
+                self.text.delete(*get_line_selection(index + region_start))
+                edited = True
+        if not edited:
             # Make bell sound so user knows this ran even though
             # nothing happened.
             self.text.bell()
-            return "break"
-        # Using dict so we can reverse and enumerate
-        ldict = dict(enumerate(lines))
-        for idx in sorted(ldict.keys(), reverse=True):
-            line = ldict[idx]
-            # If after indent there is mypy comment
-            if line.lstrip().startswith(self.comment):
-                # If so, remove line
-                del lines[idx]
-        # Apply changes
-        self.formatter.set_region(head, tail, chars, lines)
         return "break"
 
     @undo_block
@@ -1023,23 +1124,21 @@ class idlemypyextension:  # noqa: N801
         """Remove all mypy comments."""
         # pylint: disable=unused-argument
         eof_idx = self.text.index("end")
-
         chars = self.text.get("0.0", eof_idx)
 
         lines = chars.splitlines()
-        modified = False
-        for idx in reversed(range(len(lines))):
-            if lines[idx].lstrip().startswith(self.comment):
-                del lines[idx]
-                modified = True
-        if not modified:
-            return "break"
 
-        chars = "\n".join(lines)
-
-        # Apply changes
-        self.text.delete("0.0", eof_idx)
-        self.text.insert("0.0", chars, ())
+        edited = False
+        for index, line_text in reversed(tuple(enumerate(lines))):
+            # If after indent there is mypy comment
+            if line_text.lstrip().startswith(self.comment):
+                # If so, remove line
+                self.text.delete(*get_line_selection(index))
+                edited = True
+        if not edited:
+            # Make bell sound so user knows this ran even though
+            # nothing happened.
+            self.text.bell()
         return "break"
 
     @undo_block
@@ -1087,7 +1186,7 @@ def get_fake_editwin(root_tk: Tk) -> PyShellEditorWindow:
     """Get fake edit window for testing."""
     from idlelib.pyshell import PyShellEditorWindow
 
-    class FakeEditWindow(PyShellEditorWindow):  # type: ignore[misc]
+    class FakeEditWindow(PyShellEditorWindow):  # type: ignore[misc,unused-ignore]
         """FakeEditWindow for testing."""
 
         def __init__(self) -> None:
@@ -1104,12 +1203,12 @@ def get_fake_editwin(root_tk: Tk) -> PyShellEditorWindow:
 
             bind = lambda x, y: None  # type: ignore[assignment]  # noqa
             root = root_tk
-            close = None
+            close: Any = None
 
         text = _FakeText()
-        fregion = FormatRegion
-        flist = PyShellFileList
-        io = IOBinding
+        fregion: Any = FormatRegion
+        flist: Any = PyShellFileList
+        io: Any = IOBinding
 
     return FakeEditWindow()
 

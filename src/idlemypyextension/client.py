@@ -48,15 +48,18 @@ import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, TypedDict, cast
 
-import trio
-from mypy.dmypy_os import alive as _alive, kill as _kill
-from mypy.dmypy_server import (
-    Server as _Server,
-    daemonize as _daemonize,
-    process_start_options as _process_start_options,
-)
-from mypy.ipc import IPCClient as _IPCClient, IPCException as _IPCException
-from mypy.version import __version__
+from idlemypyextension.moduleguard import guard_imports
+
+with guard_imports({"trio", "mypy"}):
+    import trio
+    from mypy.dmypy_os import alive as _alive, kill as _kill
+    from mypy.dmypy_server import (
+        Server as _Server,
+        daemonize as _daemonize,
+        process_start_options as _process_start_options,
+    )
+    from mypy.ipc import IPCClient as _IPCClient, IPCException as _IPCException
+    from mypy.version import __version__
 
 if TYPE_CHECKING:
     from typing_extensions import NotRequired

@@ -31,9 +31,9 @@ import ast
 import re
 import tokenize
 from collections.abc import Callable, Collection, Sequence
-from typing import Any, Final, NoReturn
+from typing import Any, Final, NamedTuple, NoReturn
 
-BUILTINS: Final = {"List", "Set", "Type", "Dict", "Tuple"}
+TYPING_LOWER: Final = {"List", "Set", "Type", "Dict", "Tuple", "Overload"}
 
 
 class ParseError(Exception):
@@ -51,19 +51,10 @@ class ParseError(Exception):
         super().__init__(comment)
 
 
-class Token:
+class Token(NamedTuple):
     """Base token."""
 
-    __slots__ = ("text",)
-
-    def __init__(self, text: str | None = None) -> None:
-        """Initialize self with text."""
-        self.text = text
-
-    def __repr__(self) -> str:
-        """Get reprentation for this token."""
-        value = "" if self.text is None else f"{self.text!r}"
-        return f"{self.__class__.__name__}({value})"
+    text: str | None = None
 
 
 class DottedName(Token):
@@ -135,10 +126,11 @@ def tokenize_annotation(txt: str) -> list[Token]:
 
 def get_line_indent(text: str, char: str = " ") -> int:
     """Return line indent."""
-    for idx, cur in enumerate(text.split(char)):
-        if cur != "":
-            return idx
-    return 0
+    index = -1
+    for index, cur_char in enumerate(text):
+        if cur_char != char:
+            return index
+    return index + 1
 
 
 def deindent(level: int, text: str) -> str:
@@ -232,27 +224,29 @@ def tokenize_definition(
 
 
 def get_type_repr(name: str) -> str:
-    """Get representation of name."""
+    """Return representation of name."""
     for seperator in (".", ":"):
         if seperator in name:
             module, text = name.split(seperator, 1)
             if module in ("typing", "mypy_extensions"):
-                if text in BUILTINS:
+                if text in TYPING_LOWER:
                     return text.lower()
                 return text
     return name
 
 
 def get_typevalue_repr(typevalue: TypeValue) -> str:
-    """Get representation of ClassType."""
+    """Return representation of ClassType."""
     name = get_type_repr(typevalue.name)
-    if name in BUILTINS:
+    if name in TYPING_LOWER:
         name = name.lower()
     args = []
     for arg in typevalue.args:
         args.append(get_typevalue_repr(arg))
     if not args:
-        return name
+        if name:
+            return name
+        return "[]"
     if name == "Union":
         return " | ".join(args)
     values = ", ".join(args)
@@ -292,12 +286,19 @@ class TypeValue:
             self.args = ()
 
     def __repr__(self) -> str:
-        """Get representation of self."""
-        return f"TypeValue({self.name!r}, {self.args!r})"
+        """Return representation of self."""
+        args = f", {self.args!r}" if self.args else ""
+        return f"TypeValue({self.name!r}{args})"
 
     def __str__(self) -> str:
-        """Get type value representation of self."""
+        """Return type value representation of self."""
         return get_typevalue_repr(self)
+
+    def __eq__(self, rhs: object) -> bool:
+        """Return if rhs is equal to self."""
+        if isinstance(rhs, self.__class__):
+            return self.name == rhs.name and self.args == rhs.args
+        return super().__eq__(rhs)
 
 
 def list_or(values: Collection[str]) -> str:

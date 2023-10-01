@@ -32,7 +32,7 @@ from collections.abc import Callable, Collection, Generator, Sequence
 from tokenize import TokenInfo, generate_tokens, tok_name
 from typing import Any, Final, NamedTuple, NoReturn
 
-BUILTINS: Final = {"List", "Set", "Type", "Dict", "Tuple"}
+TYPING_LOWER: Final = {"List", "Set", "Type", "Dict", "Tuple", "Overload"}
 
 
 class ParseError(Exception):
@@ -435,12 +435,17 @@ def tokenize_definition(
                 tokens.append(ArgumentDefault(previous + string))
             else:
                 tokens.append(ArgumentDefault(string))
+        elif tok_name[token.type] == "INDENT":
+            tokens.append(EndSeparator(string))
         elif tok_name[token.type] == "ENDMARKER":
             raise EOFError(
                 "Found ENDMARKER token while reading function definition",
             )
         else:  # pragma: nocover
-            raise ParseError(f"Unrecognized token type {tok_name[token.type]}")
+            print(f"[DEBUG] {token = }")
+            raise ParseError(
+                f"Unrecognized token type {tok_name[token.type]!r}",
+            )
         # print(tokens[-1])
     # print(tokens[-1])
     # print()
@@ -454,7 +459,7 @@ def get_type_repr(name: str) -> str:
         if seperator in name:
             module, text = name.split(seperator, 1)
             if module in ("typing", "mypy_extensions"):
-                if text in BUILTINS:
+                if text in TYPING_LOWER:
                     return text.lower()
                 return text
     return name
@@ -463,7 +468,7 @@ def get_type_repr(name: str) -> str:
 def get_typevalue_repr(typevalue: TypeValue) -> str:
     """Return representation of ClassType."""
     name = get_type_repr(typevalue.name)
-    if name in BUILTINS:
+    if name in TYPING_LOWER:
         name = name.lower()
     args = []
     for arg in typevalue.args:
@@ -586,6 +591,11 @@ class Parser:
         if token.text == "lambda":
             lambda_data = self.parse_lambda()
             return TypeValue(f"{token.text} {lambda_data}")
+        if token.text == "Overload":
+            self.expect("(")
+            args = self.parse_type_list()
+            self.expect(")")
+            return TypeValue(token.text, args)
         if self.lookup() == "[":
             self.expect("[")
             args = self.parse_type_list()
@@ -704,7 +714,7 @@ def get_annotation(
             break
         assert (
             token.text is not None
-        ), "Unreachable, End token is only null text token"
+        ), "Unreachable, End token is the only null text token"
         new_lines += token.text
         if isinstance(token, Keyword):
             new_lines += " "
@@ -715,10 +725,11 @@ def get_annotation(
     argument = 0
     argparser = Parser(parser.rest_tokens())
     while True:
+        if isinstance(argparser.peek(), ReturnTypeDef | EndDefinition):
+            break
+
         token = argparser.next()
         if isinstance(token, Separator):
-            if token.text == ")":
-                break
             if token.text in {"/", "*"}:
                 skip_args.add(argument)
                 argument += 1
@@ -775,6 +786,7 @@ def get_annotation(
                     type_text += f"{parser.next().text}"
                 else:
                     type_text += str(parser.parse_type())
+            # print(f"{name}{type_text}")
             new_lines += f"{name}{type_text}"
             argument += 1
             arg_place += 1

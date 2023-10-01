@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "idlemypyextension"
-version = "0.2.1"
+version = "0.2.2"
 authors = [
   { name="CoolCat467" },
 ]
@@ -31,6 +31,9 @@ dependencies = [
     "trio~=0.22.2",
 ]
 
+[project.optional-dependencies]
+user = ["idleuserextend~=0.0.0"]
+
 [project.urls]
 "Homepage" = "https://github.com/CoolCat467/idlemypyextension"
 "Source" = "https://github.com/CoolCat467/idlemypyextension"
@@ -40,7 +43,7 @@ dependencies = [
 idlemypyextension = "idlemypyextension:check_installed"
 
 [tool.setuptools.package-data]
-sanescansrv = ["py.typed"]
+idlemypyextension = ["py.typed"]
 
 [tool.pytest.ini_options]
 addopts = "--cov-report term-missing --cov=idlemypyextension"
@@ -88,16 +91,17 @@ fix = true
 
 include = ["*.py", "*.pyi", "**/pyproject.toml"]
 
-select = ['A', 'B', 'C4', 'COM', 'CPY', 'D', 'E', 'EXE', 'F', 'FA', 'I', 'N', 'PIE', 'PT', 'PYI', 'Q', 'RET', 'RUF', 'S', 'SIM', 'SLOT', 'UP', 'YTT']
+select = ['A', 'B', 'C4', 'COM', 'D', 'E', 'EXE', 'F', 'FA', 'I', 'N', 'PIE', 'PT', 'PYI', 'Q', 'RET', 'RUF', 'S', 'SIM', 'SLOT', 'UP', 'YTT']
 ignore = [
     "D211",  # conflicts with docstrings
     "D213",  # conflicts with docstrings
-    "E203",  # conflicts with black
+##    "E203",  # conflicts with black
     "E501",  # conflicts with black
     "S101",  # use of assert for tests and type narrowing
 ##    "E402",  # module level import not at top of file
     "D203",  # One blank line before class
     "D401",  # Imparative mood docstrings
+    "D417",  # Bugged "Missing argument descriptions in the docstring"
 ]
 
 fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "EM", "ERA", "EXE", "FBT", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "TRY", "UP", "YTT"]

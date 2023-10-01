@@ -15,9 +15,18 @@ an inferred function signature to your file with the "Suggest Signature"
 command when you are close by a function definition.
 
 Note: On use, creates folder `mypy` within the idle user directory.
-On linux systems, this is usually `~/.idlerc/mypy`.
+On Linux systems, this is usually `~/.idlerc/mypy`.
 
-## Installation
+## Installation (Without root permissions)
+1) Go to terminal and install with `pip install idlemypyextension[user]`.
+2) Run command `idlemypyextension`. You should see the following
+output: `Config should be good!`.
+3) Open IDLE, go to `Options` -> `Configure IDLE` -> `Extensions`.
+If everything went well, alongside `ZzDummy` there should be and
+option called `idlemypyextension`. This is where you can configure how
+idlemypyextension works.
+
+## Installation (Legacy, needs root permission)
 1) Go to terminal and install with `pip install idlemypyextension`.
 2) Run command `idlemypyextension`. You will likely see a message saying
 `idlemypyextension not in system registered extensions!`. Run the command

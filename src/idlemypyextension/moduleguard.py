@@ -23,9 +23,21 @@ if TYPE_CHECKING:
 def does_path_interfere(
     path: str,
     modules: set[str],
+    *,
     ignorepaths: set[str] | None = None,
 ) -> bool:
-    """Return True if path contains something that could interfere."""
+    """Return True if path contains something that could interfere.
+
+    Arguments:
+    ---------
+      path: Path to check.
+      modules: Set of module names we want to make sure won't interfere.
+      ignorepaths: Set of paths already checked and known won't interfere.
+
+    This is a recursive function that mutates ignorepaths in each iteration.
+    It is advised against passing the ignorepaths argument.
+    """
+    # Setup ignorepaths set when user calls this
     if ignorepaths is None:
         ignorepaths = set()
 
@@ -39,7 +51,7 @@ def does_path_interfere(
             # Skip filenames with no extension
             if os.path.extsep not in filename:
                 continue
-            # If filename is module name, bad
+            # If filename is module name, that's bad
             if filename.split(os.path.extsep, 1)[0] in modules:
                 return True
 
@@ -50,10 +62,15 @@ def does_path_interfere(
             # If module name matches, bad
             if dir_module_name in modules:
                 return True
-            # We have checked this folder now
+            # Othwerwise, everything is fine and we have checked this folder.
             # No need for next iteration to do so again
             ignorepaths.add(path)
-            return does_path_interfere(level_up, modules, ignorepaths)
+            # Need to check level up now
+            return does_path_interfere(
+                level_up,
+                modules,
+                ignorepaths=ignorepaths,
+            )
     # If nothing matched we should be fine
     return False
 
@@ -66,9 +83,20 @@ class ImportGuardContextManager:
     def __init__(self, modules: set[str]) -> None:
         """Initialize modules set."""
         self.modules = modules
+        self.original: list[str] = []
+
+        bad_modules = ", ".join(modules & set(sys.builtin_module_names))
+        if bad_modules:
+            raise ValueError(
+                f"Cannot guard following builtin modules: {bad_modules}",
+            )
+
+    def __repr__(self) -> str:
+        """Return representation of self."""
+        return f"{self.__class__.__name__}({self.modules!r})"
 
     def __enter__(self) -> Self:
-        """Remove interference."""
+        """Modify sys.path to remove interference."""
         # Get deep copy
         self.original = json.loads(json.dumps(sys.path))
 
@@ -77,16 +105,17 @@ class ImportGuardContextManager:
         while index < len(sys.path):
             if not sys.path[index]:
                 path = sys.path.pop(index)
-                print(f"[DEBUG] popped {path = }")
+                # print(f"[DEBUG] popped sys.{path = }")
                 continue
             index += 1
-        print(f"[DEBUG] {sys.path = }")
+        # print(f"[DEBUG] {sys.path = }")
 
         if "idlelib" not in sys.modules:
             # We are in before IDLE, we should be safe
             return self
 
         # Remove conflict(s)
+        # First, find where the end of idle's manipulation is
         max_read = 0
         for max_read, path in enumerate(sys.path):  # noqa: B007
             if path.startswith(sys.exec_prefix):
@@ -96,7 +125,7 @@ class ImportGuardContextManager:
         while index < max_read:
             if does_path_interfere(sys.path[index], self.modules):
                 path = sys.path.pop(index)
-                print(f"[DEBUG] popped sys.{path = }")
+                # print(f"[DEBUG] popped sys.{path = }")
                 continue
             index += 1
 
@@ -108,19 +137,19 @@ class ImportGuardContextManager:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Restore sys.path."""
+        """Restore sys.path to what it was before we changed it."""
         sys.path.clear()
         for item in self.original:
             sys.path.append(item)
 
 
 def guard_import(module_name: str) -> ImportGuardContextManager:
-    """Guard import against user packages from idle's sys.path manipulation."""
+    """Guard an import against user packages from idle's sys.path manipulation."""
     return ImportGuardContextManager({module_name})
 
 
 def guard_imports(module_names: Iterable[str]) -> ImportGuardContextManager:
-    """Guard imports against user packages from idle's sys.path manipulation."""
+    """Guard specified imports against user packages from idle's sys.path manipulation."""
     return ImportGuardContextManager(set(module_names))
 
 

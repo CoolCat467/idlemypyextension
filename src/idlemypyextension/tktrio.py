@@ -17,12 +17,11 @@ from tkinter import messagebox
 from traceback import print_exception
 from typing import Any, TypeGuard
 
-from idlemypyextension.moduleguard import guard_import
+from idlemypyextension.moduleguard import guard_imports
 
-with guard_import("trio"):
+with guard_imports({"trio", "outcome"}):
     import trio
-
-from outcome import Outcome, Value
+    from outcome import Error, Outcome, Value
 
 
 def install_protocol_override(
@@ -161,13 +160,20 @@ class TkTrioRunner:
 
     def schedule_task(self, function: Callable[..., Any], *args: Any) -> None:
         """Schedule task in Tkinter's event loop."""
-        self.root.after_idle(function, *args)
+        try:
+            self.root.after_idle(function, *args)
+        except RuntimeError:
+            # probably "main thread is not in main loop" error
+            self.cancel_current_task()
 
     def call_on_trio_done(self, trio_outcome: "Outcome[Any]") -> None:
         """Called when trio guest run is complete."""
         self.run_status = RunStatus.NO_TASK
 
-        trio_outcome.unwrap()
+        try:
+            trio_outcome.unwrap()
+        except Exception as exc:
+            print_exception(exc)
 
     def cancel_current_task(self) -> bool:
         """Cancel current task if one exists, otherwise do nothing.
@@ -176,7 +182,10 @@ class TkTrioRunner:
         """
         if self.run_status == RunStatus.TRIO_RUNNING:
             self.run_status = RunStatus.TRIO_RUNNING_CANCELED
-            self.cancel_scope.cancel()
+            try:
+                self.cancel_scope.cancel()
+            except RuntimeError as exc:
+                self.call_on_trio_done(Error(exc))
             return True
         return False
 
@@ -447,7 +456,9 @@ def run() -> None:
     # Wait a tiny bit so main loop is running from main thread
     root.after(10, trigger_trio_runs)
     print("synchronous after trio run start")
-    root.mainloop()
+
+
+##    root.mainloop()
 
 
 if __name__ == "__main__":
