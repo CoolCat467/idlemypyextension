@@ -27,8 +27,8 @@ On Linux systems, this is usually `~/.idlerc/mypy`.
 
 ## Installation (Without root permissions)
 1) Go to terminal and install with `pip install idlemypyextension[user]`.
-2) Run command `idlemypyextension`. You should see the following
-output: `Config should be good!`.
+2) Run command `idleuserextend; idlemypyextension`. You should see the following
+output: `Config should be good! Config should be good!`.
 3) Open IDLE, go to `Options` -> `Configure IDLE` -> `Extensions`.
 If everything went well, alongside `ZzDummy` there should be and
 option called `idlemypyextension`. This is where you can configure how
