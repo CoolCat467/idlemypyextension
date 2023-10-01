@@ -382,12 +382,8 @@ class Parser:
             self.expect("]")
             if token.text == "Optional" and len(args) == 1:
                 return TypeValue("Union", [args[0], TypeValue("None")])
-            if token.text is None:
-                token.text = "None"
-            return TypeValue(token.text, args)
-        if token.text is None:
-            token.text = "None"
-        return TypeValue(token.text)
+            return TypeValue(token.text or "None", args)
+        return TypeValue(token.text or "None")
 
     def parse_lambda_arguments(self) -> list[str]:
         """Parse lambda arguments."""
@@ -467,14 +463,13 @@ class Parser:
         """Expect next token to be instance of token_type. Return token."""
         token = self.next()
         if not isinstance(token, token_type):
-            if hasattr(token_type, "__iter__"):
-                assert isinstance(token_type, tuple)
+            if isinstance(token_type, tuple):
                 expect_str = list_or(
                     [f"{cls.__name__!r}" for cls in token_type],
                 )
             else:
                 expect_str = f"{token_type.__name__!r}"
-            self.fail(f"Expected {expect_str}, got {token}")
+            self.fail(f"Expected {expect_str}, got {token!r}")
         return token
 
     def lookup(self) -> str:
