@@ -456,9 +456,7 @@ def run() -> None:
     # Wait a tiny bit so main loop is running from main thread
     root.after(10, trigger_trio_runs)
     print("synchronous after trio run start")
-
-
-##    root.mainloop()
+    root.mainloop()
 
 
 if __name__ == "__main__":
