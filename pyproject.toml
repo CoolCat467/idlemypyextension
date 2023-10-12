@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "idlemypyextension"
-version = "0.2.2"
+version = "0.2.3"
 authors = [
   { name="CoolCat467" },
 ]
@@ -27,7 +27,7 @@ classifiers = [
 ]
 keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
-    "mypy~=1.5.1",
+    "mypy~=1.6.0",
     "trio~=0.22.2",
 ]
 
@@ -96,7 +96,7 @@ ignore = [
     "D211",  # conflicts with docstrings
     "D213",  # conflicts with docstrings
 ##    "E203",  # conflicts with black
-    "E501",  # conflicts with black
+    "E501",  # line-too-long
     "S101",  # use of assert for tests and type narrowing
 ##    "E402",  # module level import not at top of file
     "D203",  # One blank line before class
@@ -106,37 +106,6 @@ ignore = [
 
 fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "EM", "ERA", "EXE", "FBT", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "TRY", "UP", "YTT"]
 unfixable = []#"D203"]
-
-# Exclude a variety of commonly ignored directories.
-exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".git-rewrite",
-    ".hg",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pytype",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "venv",
-]
-
-# Allow unused variables when underscore-prefixed.
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
-
-[tool.ruff.mccabe]
-max-complexity = 10
 
 [tool.tox]
 legacy_tox_ini = """
