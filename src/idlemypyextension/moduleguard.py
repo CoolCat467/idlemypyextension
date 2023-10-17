@@ -62,7 +62,7 @@ def does_path_interfere(
             # If module name matches, bad
             if dir_module_name in modules:
                 return True
-            # Othwerwise, everything is fine and we have checked this folder.
+            # Otherwise, everything is fine and we have checked this folder.
             # No need for next iteration to do so again
             ignorepaths.add(path)
             # Need to check level up now

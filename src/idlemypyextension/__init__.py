@@ -816,7 +816,7 @@ class idlemypyextension:  # noqa: N801
         return "break"
 
     async def check(self, file: str) -> client.Response:
-        """Preform dmypy check."""
+        """Perform dmypy check."""
         if not await self.ensure_daemon_running():
             return client.Response(
                 {"out": "", "err": "Error: Could not start mypy daemon"},
@@ -894,7 +894,7 @@ class idlemypyextension:  # noqa: N801
         return text, line_count
 
     async def suggest(self, file: str, line: int) -> None:
-        """Preform dmypy suggest."""
+        """Perform dmypy suggest."""
         if not await self.ensure_daemon_running():
             response = client.Response(
                 {"err": "Error: Could not start mypy daemon"},
@@ -1084,7 +1084,7 @@ class idlemypyextension:  # noqa: N801
         self.text.bell()
 
     async def type_check_event_async(self, event: Event[Any]) -> str:
-        """Preform a mypy check and add comments."""
+        """Perform a mypy check and add comments."""
         init_return, file = self.initial()
 
         if init_return is not None:
@@ -1198,7 +1198,7 @@ def get_fake_editwin(root_tk: Tk) -> PyShellEditorWindow:
             """Make bind do nothing."""
 
             def __init__(self) -> None:
-                """Requries no arguments."""
+                """Requires no arguments."""
                 return
 
             bind = lambda x, y: None  # type: ignore[assignment]  # noqa

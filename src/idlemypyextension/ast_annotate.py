@@ -225,9 +225,9 @@ def tokenize_definition(
 
 def get_type_repr(name: str) -> str:
     """Return representation of name."""
-    for seperator in (".", ":"):
-        if seperator in name:
-            module, text = name.split(seperator, 1)
+    for separator in (".", ":"):
+        if separator in name:
+            module, text = name.split(separator, 1)
             if module in ("typing", "mypy_extensions"):
                 if text in TYPING_LOWER:
                     return text.lower()

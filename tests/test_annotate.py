@@ -115,7 +115,7 @@ def test_typevalue_super_eq() -> None:
                 annotate.TypeValue("None"),
             ),
         )
-        != "potatoe"
+        != "potato"
     )
 
 
@@ -301,22 +301,22 @@ def test_invalid_tokenize_definition() -> None:
 ) -> tuple[str, int]:""",
         ),
         (
-            """def potatoe(
+            """def potato(
     get_line = lambda lno: GLOBAL_LINES[lno]
 ):""",
             ["Callable[[int], str]"],
             "bool",
-            """def potatoe(
+            """def potato(
     get_line: Callable[[int], str] = lambda lno: GLOBAL_LINES[lno]
 ) -> bool:""",
         ),
         (
-            """def potatoe(
+            """def potato(
     get_line = ...
 ):""",
             ["Callable[[int], str]"],
             "bool",
-            """def potatoe(
+            """def potato(
     get_line: Callable[[int], str] = ...
 ) -> bool:""",
         ),
@@ -443,37 +443,37 @@ def test_invalid_tokenize_definition() -> None:
             """def test(value: int = -~ALL_BITS) -> None:""",
         ),
         (
-            """def potatoe(
+            """def potato(
     get_line = lambda lno: "",
     lines = 0,
 ):""",
             ["Callable[[int], str]", "int"],
             "bool",
-            """def potatoe(
+            """def potato(
     get_line: Callable[[int], str] = lambda lno: "",
     lines: int = 0,
 ) -> bool:""",
         ),
         (
-            """def potatoe(
+            """def potato(
     get_line = lambda lno, default: (default),
     lines = 0,
 ):""",
             ["Callable[[int, str], str]", "int"],
             "bool",
-            """def potatoe(
+            """def potato(
     get_line: Callable[[int, str], str] = lambda lno, default: (default),
     lines: int = 0,
 ) -> bool:""",
         ),
         (
-            """def potatoe(
+            """def potato(
     get_line: Callable[[int, str], str] = lambda lno, default: (default),
     lines: int = 0,
 ) -> bool:""",
             ["Callable[[int, str], str]", "int"],
             "bool",
-            """def potatoe(
+            """def potato(
     get_line: Callable[[int, str], str] = lambda lno, default: (default),
     lines: int = 0,
 ) -> bool:""",

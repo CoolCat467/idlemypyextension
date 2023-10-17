@@ -1,5 +1,5 @@
 # IdleMypyExtension
-Python IDLE extension to preform mypy analysis on an open file
+Python IDLE extension to perform mypy analysis on an open file
 
 [![Tests](https://github.com/CoolCat467/idlemypyextension/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/CoolCat467/idlemypyextension/actions/workflows/tests.yml)
 <!-- BADGIE TIME -->

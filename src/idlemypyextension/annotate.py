@@ -415,7 +415,7 @@ def tokenize_definition(
             elif string == "...":  # Ellipsis constant
                 tokens.append(DottedName(string))
             else:  # pragma: no cover
-                raise ParseError(f"Exaustive list of OP failed: {string!r}")
+                raise ParseError(f"Exhaustive list of OP failed: {string!r}")
         elif tok_name[token.type] in {"NL", "NEWLINE"}:
             # replace separator ends with end separators
             if tokens and isinstance(tokens[-1], Separator):
@@ -455,9 +455,9 @@ def tokenize_definition(
 
 def get_type_repr(name: str) -> str:
     """Return representation of name."""
-    for seperator in (".", ":"):
-        if seperator in name:
-            module, text = name.split(seperator, 1)
+    for separator in (".", ":"):
+        if separator in name:
+            module, text = name.split(separator, 1)
             if module in ("typing", "mypy_extensions"):
                 if text in TYPING_LOWER:
                     return text.lower()

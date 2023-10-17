@@ -414,7 +414,7 @@ class TkTrioMultiRunner(TkTrioRunner):
         return canceled
 
     async def handle_queue(self) -> None:
-        """Run all async functions in the queue until exausted."""
+        """Run all async functions in the queue until exhausted."""
         while not self.call_queue.empty():
             async with trio.open_nursery() as nursery:
                 while not self.call_queue.empty():
