@@ -202,7 +202,7 @@ class TkTrioRunner:
 
         self.cancel_scope = trio.CancelScope()
 
-        @trio.lowlevel.disable_ki_protection  # type: ignore[misc]
+        @trio.lowlevel.disable_ki_protection
         async def wrap_in_cancel(is_evil: bool) -> Any:
             value = None
             try:
