@@ -249,6 +249,25 @@ def read_lambda(generator: Generator[TokenInfo, None, None]) -> str:
     raise ParseError("Reading lambda failed")  # pragma: nocover
 
 
+def read_fstring(
+    starting_token: TokenInfo,
+    generator: Generator[TokenInfo, None, None],
+) -> str:
+    """Return f-string text."""
+    text = [starting_token.string]
+
+    for token in generator:
+        string = token.string
+        type_ = tok_name[token.type]
+        # print(f'{string = }')
+        if type_ == "FSTRING_START":
+            string = read_fstring(token, generator)
+        text.append(string)
+        if type_ == "FSTRING_END":
+            return "".join(text)
+    raise ParseError("Reading f-string failed")  # pragma: nocover
+
+
 def tokenize_definition(
     start_line: int,
     get_line: Callable[[int], str],
@@ -435,8 +454,12 @@ def tokenize_definition(
                 tokens.append(ArgumentDefault(previous + string))
             else:
                 tokens.append(ArgumentDefault(string))
-        elif tok_name[token.type] == "INDENT":
+        elif tok_name[token.type] == "INDENT":  # pragma: nocover
             tokens.append(EndSeparator(string))
+        elif tok_name[token.type] == "FSTRING_START":
+            tokens.append(
+                ArgumentDefault(read_fstring(token, token_generator)),
+            )
         elif tok_name[token.type] == "ENDMARKER":
             raise EOFError(
                 "Found ENDMARKER token while reading function definition",

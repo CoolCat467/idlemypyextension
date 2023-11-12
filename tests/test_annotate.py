@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Collection, Sequence
 
 import pytest
@@ -490,6 +491,18 @@ def test_invalid_tokenize_definition() -> None:
             "int",
             """def frog(numbers: tuple[int, int] = (2, 3)) -> int:""",
         ),
+        (
+            """def log_active_exception(path = f'{ROOT_DIR}/logs/latest.txt'):""",
+            ["str"],
+            "None",
+            """def log_active_exception(path: str = f'{ROOT_DIR}/logs/latest.txt') -> None:""",
+        ),
+        (
+            """def log_active_exception(path = f'{ROOT_DIR}/logs/latest.txt'):""",
+            ["str"],
+            "Overload(int, str)",
+            """def log_active_exception(path: str = f'{ROOT_DIR}/logs/latest.txt') -> overload[int, str]:""",
+        ),
     ],
 )
 def test_get_annotation(
@@ -498,6 +511,31 @@ def test_get_annotation(
     return_type: str,
     result: str,
 ) -> None:
+    annotation_dict = {
+        "line": 0,
+        "signature": {"arg_types": arg_types, "return_type": return_type},
+    }
+
+    lines = function_text.splitlines(True)
+
+    def get_line(line_no: int) -> str:
+        return lines[line_no]
+
+    returned, _ = annotate.get_annotation(annotation_dict, get_line)
+    if returned != result:
+        print(f"{returned}\n!=\n{result}")
+    assert returned == result
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 12),
+    reason="F-string tokenization worked differently prior to 3.12",
+)
+def test_get_annotation_fstring_3_12() -> None:
+    function_text = """def log_active_exception(path = f'{f'{ROOT_DIR}/logs'}/latest.txt'):"""
+    arg_types = ["str"]
+    return_type = "None"
+    result = """def log_active_exception(path: str = f'{f'{ROOT_DIR}/logs'}/latest.txt') -> None:"""
     annotation_dict = {
         "line": 0,
         "signature": {"arg_types": arg_types, "return_type": return_type},

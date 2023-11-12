@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "idlemypyextension"
-version = "0.2.3"
+version = "0.2.4"
 authors = [
   { name="CoolCat467" },
 ]
@@ -18,6 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3 :: Only",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
@@ -27,8 +28,8 @@ classifiers = [
 ]
 keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
-    "mypy~=1.6.1",
-    "trio~=0.23.0",
+    "mypy~=1.7.0",
+    "trio~=0.23.1",
 ]
 
 [project.optional-dependencies]
@@ -110,13 +111,14 @@ unfixable = []#"D203"]
 [tool.tox]
 legacy_tox_ini = """
     [tox]
-    envlist = py310, py311, mypy, pytest
+    envlist = py310, py311, py312, mypy, pytest
     isolated_build = false
 
     [gh-actions]
     python =
         3.10: py310, mypy, pytest
         3.11: py311, mypy
+        3.12: py312, mypy, pytest
 
     [testenv]
     setenv =
