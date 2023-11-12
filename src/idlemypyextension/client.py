@@ -180,7 +180,7 @@ async def _request_win32(
         Raise OSError if the data received is not valid JSON or if it is
         not a dict.
         """
-        bdata: bytes = await async_connection.read()
+        bdata: bytes = await async_connection.read()  # type: ignore[misc]
         if not bdata:
             return {"error": "No data received"}
         return _read_request_response_json(bdata)
@@ -188,7 +188,7 @@ async def _request_win32(
     try:
         with _IPCClient(name, timeout) as client:
             async_client = trio.wrap_file(client)
-            await async_client.write(request_arguments.encode("utf8"))
+            await async_client.write(request_arguments)  # type: ignore[arg-type]
             return await _receive(async_client)
     except (OSError, _IPCException, ValueError) as err:
         return {"error": str(err)}
@@ -197,7 +197,7 @@ async def _request_win32(
 async def _request_linux(
     filename: str,
     request_arguments: str,
-    timeout: int | None = None,
+    timeout: float | None = None,
 ) -> Response:
     def find_frame_in_buffer(
         buffer: bytearray,
@@ -225,7 +225,10 @@ async def _request_linux(
             print("frame read click")
             # Receive more data into the buffer.
             try:
-                with trio.fail_after(timeout):  # timeout
+                if timeout is not None:
+                    with trio.fail_after(timeout):
+                        more = await connection.receive_some()
+                else:
                     more = await connection.receive_some()
             except trio.TooSlowError:
                 return {"error": "Connection timed out"}
@@ -271,9 +274,9 @@ async def request(
     request_arguments = json.dumps(args)
     _, name = get_status(status_file)
 
-    if True:  # sys.platform == "win32":
-        return await _request_win32(name, request_arguments, timeout)
-    return await _request_linux(name, request_arguments, timeout)
+    ##    if False:  # sys.platform != "win32":
+    ##        return await _request_linux(name, request_arguments, timeout)
+    return await _request_win32(name, request_arguments, timeout)
 
 
 def is_running(status_file: str) -> bool:
