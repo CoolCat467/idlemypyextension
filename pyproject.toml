@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools >= 64"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "idlemypyextension"
-version = "0.2.4"
+dynamic = ["version"]
 authors = [
   { name="CoolCat467" },
 ]
@@ -31,6 +31,9 @@ dependencies = [
     "mypy~=1.7.0",
     "trio~=0.23.1",
 ]
+
+[tool.setuptools.dynamic]
+version = {attr = "idlemypyextension.__init__.__version__"}
 
 [project.optional-dependencies]
 user = ["idleuserextend~=0.0.0"]
