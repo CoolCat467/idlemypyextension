@@ -42,8 +42,11 @@ __license__ = "MIT"
 
 import base64
 import contextlib
+import io
 import json
 import os
+import sys
+from collections import ChainMap
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, TypedDict, cast
 
@@ -87,6 +90,7 @@ class Response(TypedDict):
     restart: NotRequired[str]
     status: NotRequired[int]
     stats: NotRequired[object]
+    final: NotRequired[bool]
 
 
 class BadStatusError(Exception):
@@ -154,7 +158,7 @@ def get_status(status_file: str) -> tuple[int, str]:
     return _check_status(data)
 
 
-def _read_request_response_json(request_response: bytes) -> Response:
+def _read_request_response_json(request_response: str | bytes) -> Response:
     """Read request response json."""
     try:
         data = json.loads(request_response)
@@ -173,23 +177,32 @@ async def _request_win32(
     """Request from daemon on windows."""
 
     async def _receive(
-        async_connection: trio._file_io.AsyncIOWrapper[_IPCClient],
+        async_connection: trio._file_io.AsyncIOWrapper[io.StringIO],
     ) -> Response:
         """Receive JSON data from a connection until EOF.
 
         Raise OSError if the data received is not valid JSON or if it is
         not a dict.
         """
-        bdata: bytes = await async_connection.read()  # type: ignore[misc]
+        bdata: str = await async_connection.read()
         if not bdata:
             return {"error": "No data received"}
         return _read_request_response_json(bdata)
 
     try:
+        all_responses: list[Response] = []
         with _IPCClient(name, timeout) as client:
-            async_client = trio.wrap_file(client)
-            await async_client.write(request_arguments)  # type: ignore[arg-type]
-            return await _receive(async_client)
+            async_client = trio.wrap_file(cast(io.StringIO, client))
+            await async_client.write(request_arguments)
+
+            final = False
+            while not final:
+                response = await _receive(async_client)
+                final = bool(response.pop("final", False))
+                all_responses.append(response)
+        if len(all_responses) > 1:
+            debug(f"request win32 {all_responses = }")
+        return cast(Response, dict(ChainMap(*all_responses).items()))  # type: ignore[arg-type]
     except (OSError, _IPCException, ValueError) as err:
         return {"error": str(err)}
 
@@ -211,18 +224,16 @@ async def _request_linux(
 
     buffer = bytearray()
     frame: bytearray | None = None
+    all_responses: list[Response] = []
     async with await trio.open_unix_socket(filename) as connection:
         # Frame the data by urlencoding it and separating by space.
-        print(f"{request_arguments = }")
         request_frame = (
             base64.encodebytes(request_arguments.encode("utf8")) + b" "
         )
-        ##        request_frame = request_arguments.encode("utf8")
-        print(f"{request_frame = }")
         await connection.send_all(request_frame)
 
-        while frame is None:
-            print("frame read click")
+        is_not_done = True
+        while is_not_done:
             # Receive more data into the buffer.
             try:
                 if timeout is not None:
@@ -232,7 +243,6 @@ async def _request_linux(
                     more = await connection.receive_some()
             except trio.TooSlowError:
                 return {"error": "Connection timed out"}
-            print(f"{more = }")
             if not more:
                 # Connection closed
                 # Socket was empty and we didn't get any frame.
@@ -240,10 +250,17 @@ async def _request_linux(
             buffer.extend(more)
 
             buffer, frame = find_frame_in_buffer(buffer)
-            print(f"\n{buffer = }")
-            print(f"{frame = }")
-    response_text = base64.decodebytes(frame)
-    return _read_request_response_json(response_text)
+            if frame is None:
+                continue
+            # Frame is not None, we read a full frame
+            response_text = base64.decodebytes(frame)
+            response = _read_request_response_json(response_text)
+
+            is_not_done = not bool(response.pop("final", False))
+            all_responses.append(response)
+    if len(all_responses) > 1:
+        debug(f"request linux {all_responses = }")
+    return cast(Response, dict(ChainMap(*all_responses).items()))  # type: ignore[arg-type]
 
 
 async def request(
@@ -274,9 +291,9 @@ async def request(
     request_arguments = json.dumps(args)
     _, name = get_status(status_file)
 
-    ##    if False:  # sys.platform != "win32":
-    ##        return await _request_linux(name, request_arguments, timeout)
-    return await _request_win32(name, request_arguments, timeout)
+    if sys.platform == "win32":
+        return await _request_win32(name, request_arguments, timeout)
+    return await _request_linux(name, request_arguments, timeout)
 
 
 def is_running(status_file: str) -> bool:
@@ -325,7 +342,6 @@ async def _start_server(
 ) -> bool:
     """Start the server and wait for it. Return False if error starting."""
     start_options = _process_start_options(flags, allow_sources)
-    print(f"[Client DEBUG] {start_options = }")
     if (
         _daemonize(
             start_options,
@@ -462,7 +478,7 @@ def kill(status_file: str) -> bool:
     try:
         _kill(pid)
     except OSError as ex:
-        print(ex)
+        debug(f"Kill exception: {ex}")
         return False
     return True
 
