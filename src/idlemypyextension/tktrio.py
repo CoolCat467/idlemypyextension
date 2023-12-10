@@ -7,21 +7,24 @@ __author__ = "CoolCat467"
 __license__ = "GPLv3"
 __version__ = "0.1.0"
 
+import sys
 import tkinter as tk
 import weakref
 from collections.abc import Awaitable, Callable
 from enum import IntEnum, auto
 from functools import partial, wraps
-from queue import Queue
 from tkinter import messagebox
 from traceback import print_exception
 from typing import Any, TypeGuard
 
 from idlemypyextension.moduleguard import guard_imports
 
-with guard_imports({"trio", "outcome"}):
+with guard_imports({"trio", "outcome", "exceptiongroup"}):
     import trio
-    from outcome import Error, Outcome, Value
+    from outcome import Outcome
+
+    if sys.version_info < (3, 11):
+        from exceptiongroup import ExceptionGroup
 
 
 def install_protocol_override(
@@ -65,7 +68,6 @@ def uninstall_protocol_override(root: tk.Wm) -> None:
 
 
 class RunStatus(IntEnum):
-
     """Enum for trio run status.
 
     NO_TASK is when there is no task and not running
@@ -76,6 +78,7 @@ class RunStatus(IntEnum):
 
     TRIO_RUNNING_CANCELED = auto()
     TRIO_RUNNING = auto()
+    TRIO_STARTING = auto()
     NO_TASK = auto()
 
 
@@ -112,7 +115,7 @@ class TkTrioRunner:
     __slots__ = (
         "root",
         "call_tk_close",
-        "cancel_scope",
+        "nursery",
         "run_status",
         "recieved_loop_close_request",
         "installed_proto_override",
@@ -151,7 +154,7 @@ class TkTrioRunner:
         self.root = root
         self.call_tk_close = restore_close or root.destroy
 
-        self.cancel_scope: trio.CancelScope
+        self.nursery: trio.Nursery
         self.run_status = RunStatus.NO_TASK
         self.recieved_loop_close_request = False
         self.installed_proto_override = False
@@ -162,56 +165,59 @@ class TkTrioRunner:
         """Schedule task in Tkinter's event loop."""
         try:
             self.root.after_idle(function, *args)
-        except RuntimeError:
+        except RuntimeError as exc:
+            print_exception(exc)
             # probably "main thread is not in main loop" error
             self.cancel_current_task()
 
-    def call_on_trio_done(self, trio_outcome: "Outcome[Any]") -> None:
-        """Called when trio guest run is complete."""
-        self.run_status = RunStatus.NO_TASK
-
-        try:
-            trio_outcome.unwrap()
-        except Exception as exc:
-            print_exception(exc)
-
-    def cancel_current_task(self) -> bool:
-        """Cancel current task if one exists, otherwise do nothing.
-
-        Return True if canceled a task
-        """
-        if self.run_status == RunStatus.TRIO_RUNNING:
-            self.run_status = RunStatus.TRIO_RUNNING_CANCELED
-            try:
-                self.cancel_scope.cancel()
-            except RuntimeError as exc:
-                self.call_on_trio_done(Error(exc))
-            return True
-        return False
+    def cancel_current_task(self) -> None:
+        """Cancel current task if one is running."""
+        if self.run_status == RunStatus.NO_TASK:
+            # No need to reschedule, is already closed.
+            return
+        if self.run_status == RunStatus.TRIO_STARTING:
+            # Reschedule close for later, in process of starting.
+            self.schedule_task(self.cancel_current_task)
+            return
+        self.nursery.cancel_scope.cancel()
+        self.run_status = RunStatus.TRIO_RUNNING_CANCELED
 
     def _start_async_task(
         self,
         function: Callable[[], Awaitable[Any]],
     ) -> None:
         """Internal start task running so except block can catch errors."""
-        # evil_spawn = False
         if evil_does_trio_have_runner():
             self.show_warning_trio_already_running()
-            # evil_spawn = True
             return
 
-        self.cancel_scope = trio.CancelScope()
-
         @trio.lowlevel.disable_ki_protection
-        async def wrap_in_cancel(is_evil: bool) -> Any:
-            value = None
+        async def run_nursery() -> None:
+            """Run nursery."""
+            assert self.run_status == RunStatus.TRIO_STARTING
+            async with trio.open_nursery(True) as nursery:
+                self.nursery = nursery
+                self.run_status = RunStatus.TRIO_RUNNING
+                self.nursery.start_soon(function)
+                ##try:
+                ##    while not self.nursery.cancel_scope.cancel_called:
+                ##        await trio.sleep(0)
+                ##finally:
+                ##    self.run_status = RunStatus.TRIO_RUNNING_CANCELED
+            return
+
+        def done_callback(outcome: Outcome[None]) -> None:
+            """Handle when trio is done running."""
+            assert self.run_status in {
+                RunStatus.TRIO_RUNNING_CANCELED,
+                RunStatus.TRIO_RUNNING,
+            }
+            self.run_status = RunStatus.NO_TASK
+            del self.nursery
             try:
-                with self.cancel_scope:
-                    value = await function()
-            finally:
-                if is_evil:
-                    self.call_on_trio_done(Value(value))
-            return value
+                outcome.unwrap()
+            except ExceptionGroup as exc:
+                print_exception(exc)
 
         # if evil_spawn:
         #     trio.lowlevel.spawn_system_task(
@@ -219,27 +225,18 @@ class TkTrioRunner:
         #     )
         #     return
 
+        assert self.run_status == RunStatus.NO_TASK
+
+        self.run_status = RunStatus.TRIO_STARTING
+
         trio.lowlevel.start_guest_run(
-            wrap_in_cancel,
-            False,
+            run_nursery,
+            done_callback=done_callback,
             run_sync_soon_threadsafe=self.schedule_task,
-            done_callback=self.call_on_trio_done,
+            host_uses_signal_set_wakeup_fd=False,
+            restrict_keyboard_interrupt_to_checkpoints=True,
+            strict_exception_groups=True,
         )
-
-    def run_async_task(self, function: Callable[[], Awaitable[Any]]) -> None:
-        """Start trio guest mode run for given async function."""
-        if self.run_status != RunStatus.NO_TASK:
-            raise RuntimeError(
-                "Each host loop can only have one guest run at a time",
-            )
-
-        self.run_status = RunStatus.TRIO_RUNNING
-
-        try:
-            self._start_async_task(function)
-        except Exception as ex:
-            self.run_status = RunStatus.NO_TASK
-            print_exception(ex, limit=-1)
 
     def get_del_window_proto(
         self,
@@ -253,10 +250,11 @@ class TkTrioRunner:
                 self.root.withdraw()
             self.recieved_loop_close_request = True
             # If a task is still running
-            if self.run_status != RunStatus.NO_TASK:
+            if self.run_status == RunStatus.TRIO_RUNNING:
                 # Cancel it if not already canceled
                 self.cancel_current_task()
-                # Rerun this function again in the future
+            if self.run_status != RunStatus.NO_TASK:
+                # Rerun this function again in the future until no task running.
                 self.schedule_task(shutdown_then_call)
                 return None
             # No more tasks
@@ -302,17 +300,6 @@ class TkTrioRunner:
             parent=self.root,
         )
 
-    def ask_ok_to_cancel(self) -> bool:
-        """Ask if it is ok to cancel current task."""
-        msg = "Only one async task at once\n" + "OK to Cancel Current Task?"
-        confirm: bool = messagebox.askokcancel(
-            title="Cancel Before New Task",
-            message=msg,
-            default=messagebox.OK,
-            parent=self.root,
-        )
-        return confirm
-
     def no_start_trio_is_stopping(self) -> None:
         """Show warning that previous trio run needs to stop."""
         messagebox.showwarning(
@@ -329,32 +316,20 @@ class TkTrioRunner:
             return None
 
         if self.run_status == RunStatus.TRIO_RUNNING_CANCELED:
-            # Task run is in the process of stopping
-            # self.no_start_trio_is_stopping()
+            ### Task run is in the process of stopping
+            ### self.no_start_trio_is_stopping()
+            # Reschedule starting task
+            self.schedule_task(self.__call__, function)
+            return None
+
+        if self.run_status == RunStatus.TRIO_STARTING:
+            # Reschedule starting task
+            self.schedule_task(self.__call__, function)
             return None
 
         # If there is a task running
         if self.run_status == RunStatus.TRIO_RUNNING:
-            # Ask if we can cancel it
-            can_cancel = self.ask_ok_to_cancel()
-            if not can_cancel:
-                # If we can't, don't run new task
-                return None
-            # If we can, cancel current task
-            self.cancel_current_task()
-
-            # Then trigger new task to run later
-            def trigger_run_when_current_done(
-                function: Callable[[], Awaitable[Any]],
-            ) -> None:
-                # If still a task, reschedule
-                if self.run_status != RunStatus.NO_TASK:
-                    self.schedule_task(trigger_run_when_current_done, function)
-                    return None
-                # Task done, ok to start
-                return self(function)
-
-            trigger_run_when_current_done(function)
+            self.nursery.start_soon(function)
             return None
 
         if self.run_status != RunStatus.NO_TASK:
@@ -369,68 +344,7 @@ class TkTrioRunner:
             self.root.protocol("WM_DELETE_WINDOW", self.call_tk_close)
 
         # Start running new task
-        try:
-            return self.run_async_task(function)
-        except RuntimeError as ex:
-            print_exception(ex)
-
-
-class TkTrioMultiRunner(TkTrioRunner):
-    """Tk Trio Multi Runner - Allow multiple async tasks to run."""
-
-    __slots__ = ("call_queue", "queue_handler_running")
-
-    def __init__(
-        self,
-        root: tk.Tk,
-        restore_close: Callable[[], None] | None = None,
-    ) -> None:
-        """Initialize runner."""
-        if (
-            hasattr(root, "__trio__")
-            and getattr(root, "__trio__", lambda: None)() is self
-        ):
-            return
-        super().__init__(root, restore_close)
-
-        self.call_queue: Queue[Callable[[], Awaitable[Any]]] = Queue()
-        self.queue_handler_running = False
-
-    def call_on_trio_done(self, trio_outcome: "Outcome[Any]") -> None:
-        """Queue handler is no longer running."""
-        try:
-            super().call_on_trio_done(trio_outcome)
-        finally:
-            self.queue_handler_running = False
-
-    def cancel_current_task(self) -> bool:
-        """Cancel current task. Return True if canceled."""
-        canceled = super().cancel_current_task()
-        if not canceled:
-            return canceled
-        if self.recieved_loop_close_request:
-            self.queue_handler_running = False
-            return canceled
-        return canceled
-
-    async def handle_queue(self) -> None:
-        """Run all async functions in the queue until exhausted."""
-        while not self.call_queue.empty():
-            async with trio.open_nursery() as nursery:
-                while not self.call_queue.empty():
-                    nursery.start_soon(self.call_queue.get_nowait())
-                    await trio.sleep(0)
-
-    def start_queue(self) -> None:
-        """Start handling the queue if it's not already happening."""
-        if not self.queue_handler_running:
-            self.queue_handler_running = True
-            super().__call__(self.handle_queue)
-
-    def __call__(self, function: Callable[[], Awaitable[Any]]) -> None:
-        """Schedule async function for the future."""
-        self.call_queue.put(function)
-        self.schedule_task(self.start_queue)
+        return self._start_async_task(function)
 
 
 def run() -> None:
@@ -441,15 +355,19 @@ def run() -> None:
         for i in range(5):
             print(f"Hello from Trio! ({i}) ({run = })")
             # This is inside Trio, so we have to use Trio APIs
-            await trio.sleep(1)
+            try:
+                await trio.sleep(1)
+            except trio.Cancelled:
+                print(f"Run {run} canceled.")
+                raise
         return "trio done!"
 
     root = tk.Tk(className="ClassName")
 
     def trigger_trio_runs() -> None:
-        trio_run = TkTrioMultiRunner(root)
+        trio_run = TkTrioRunner(root)
         trio_run(partial(trio_test_program, 0))
-        trio_run_2 = TkTrioMultiRunner(root)
+        trio_run_2 = TkTrioRunner(root)
         trio_run_2(partial(trio_test_program, 1))
         trio_run_2(partial(trio_test_program, 2))
         trio_run(partial(trio_test_program, 3))

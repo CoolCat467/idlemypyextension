@@ -46,7 +46,7 @@ except ImportError:
     _HAS_MYPY = False
 
 
-def debug(message: str) -> None:
+def debug(message: object) -> None:
     """Print debug message."""
     # TODO: Censor username/user files
     print(f"\n[{__title__}] DEBUG: {message}")
@@ -1043,6 +1043,14 @@ class idlemypyextension:  # noqa: N801
             return init_return
         if file is None:
             return "break"
+        if client.REQUEST_LOCK.locked():
+            # If already requesting something from daemon,
+            # do not send any other requests.
+            debug(client.REQUEST_LOCK.statistics())
+            # Make bell sound so user knows this ran even though
+            # nothing happened.
+            self.text.bell()
+            return "break"
 
         await self.suggest(file, self.editwin.getlineno())
 
@@ -1090,6 +1098,14 @@ class idlemypyextension:  # noqa: N801
         if init_return is not None:
             return init_return
         if file is None:
+            return "break"
+        if client.REQUEST_LOCK.locked():
+            # If already requesting something from daemon,
+            # do not send any other requests.
+            debug(client.REQUEST_LOCK.statistics())
+            # Make bell sound so user knows this ran even though
+            # nothing happened.
+            self.text.bell()
             return "break"
 
         # Run mypy on open file

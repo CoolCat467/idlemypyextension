@@ -94,7 +94,6 @@ class Response(TypedDict):
 
 
 class BadStatusError(Exception):
-
     """Exception raised when there is something wrong with the status file.
 
     For example:
@@ -263,6 +262,9 @@ async def _request_linux(
     return cast(Response, dict(ChainMap(*all_responses).items()))  # type: ignore[arg-type]
 
 
+REQUEST_LOCK = trio.Lock()
+
+
 async def request(
     status_file: str,
     command: str,
@@ -291,9 +293,10 @@ async def request(
     request_arguments = json.dumps(args)
     _, name = get_status(status_file)
 
-    if sys.platform == "win32":
-        return await _request_win32(name, request_arguments, timeout)
-    return await _request_linux(name, request_arguments, timeout)
+    async with REQUEST_LOCK:
+        if sys.platform == "win32":
+            return await _request_win32(name, request_arguments, timeout)
+        return await _request_linux(name, request_arguments, timeout)
 
 
 def is_running(status_file: str) -> bool:
