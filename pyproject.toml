@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "idlemypyextension"
 dynamic = ["version"]
 authors = [
-  { name="CoolCat467" },
+  { name="CoolCat467", email="CoolCat467@duck.com" },
 ]
 description = "Mypy daemon extension for Python IDLE"
 readme = {file = "README.md", content-type = "text/markdown"}
@@ -15,15 +15,19 @@ requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Natural Language :: English",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3 :: Only",
-    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Software Development",
+    "Topic :: Text Editors :: Integrated Development Environments (IDE)",
+    "Topic :: Utilities",
     "Operating System :: OS Independent",
     "Framework :: IDLE",
-    "Topic :: Utilities",
+    "Framework :: Trio",
     "Typing :: Typed",
 ]
 keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
@@ -39,7 +43,6 @@ version = {attr = "idlemypyextension.__init__.__version__"}
 user = ["idleuserextend~=0.0.0"]
 
 [project.urls]
-"Homepage" = "https://github.com/CoolCat467/idlemypyextension"
 "Source" = "https://github.com/CoolCat467/idlemypyextension"
 "Bug Tracker" = "https://github.com/CoolCat467/idlemypyextension/issues"
 

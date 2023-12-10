@@ -419,6 +419,7 @@ class TkTrioMultiRunner(TkTrioRunner):
             async with trio.open_nursery() as nursery:
                 while not self.call_queue.empty():
                     nursery.start_soon(self.call_queue.get_nowait())
+                    await trio.sleep(0)
 
     def start_queue(self) -> None:
         """Start handling the queue if it's not already happening."""
