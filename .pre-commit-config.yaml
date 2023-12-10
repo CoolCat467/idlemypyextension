@@ -27,7 +27,7 @@ repos:
         args: [--config=pyproject.toml, src]
         types: [file]
         types_or: [python, pyi]
-  - repo: https://github.com/psf/black
+  - repo: https://github.com/psf/black-pre-commit-mirror
     rev: 23.11.0
     hooks:
       - id: black
@@ -37,8 +37,8 @@ repos:
       - id: ruff
         types: [file]
         types_or: [python, pyi, toml]
-  - repo: https://gitlab.com/brettops/tools/badgie
-    rev: "0.9.0"
+  - repo: https://github.com/CoolCat467/badgie
+    rev: v0.9.4
     hooks:
       - id: badgie
   - repo: https://github.com/codespell-project/codespell
