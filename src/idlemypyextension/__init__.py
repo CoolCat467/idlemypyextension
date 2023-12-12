@@ -1029,7 +1029,8 @@ class idlemypyextension:  # noqa: N801
                 return "break", file
             # Otherwise, we are clear to save
             self.files.save(None)
-            self.files.set_saved(True)
+            if not self.files.get_saved():
+                return "break", file
 
         # Everything worked
         return None, file

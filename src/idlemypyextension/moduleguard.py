@@ -120,12 +120,14 @@ class ImportGuardContextManager:
         for max_read, path in enumerate(sys.path):  # noqa: B007
             if path.startswith(sys.exec_prefix):
                 break
+        max_read = min(max_read, 2)
 
         index = 0
         while index < max_read:
             if does_path_interfere(sys.path[index], self.modules):
                 path = sys.path.pop(index)
                 # print(f"[DEBUG] popped sys.{path = }")
+                max_read -= 1
                 continue
             index += 1
 
