@@ -12,11 +12,12 @@ __version__ = "0.0.0"
 import json
 import os
 import sys
-from collections.abc import Iterable
-from types import TracebackType
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from types import TracebackType
+
     from typing_extensions import Self
 
 

@@ -186,7 +186,7 @@ class TkTrioRunner:
         self,
         function: Callable[[], Awaitable[Any]],
     ) -> None:
-        """Internal start task running so except block can catch errors."""
+        """Run async task in new nursery."""
         if evil_does_trio_have_runner():
             self.show_warning_trio_already_running()
             return

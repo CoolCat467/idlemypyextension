@@ -23,15 +23,17 @@ from dataclasses import dataclass
 from functools import partial, wraps
 from idlelib import search, searchengine
 from idlelib.config import idleConf
-from idlelib.editor import EditorWindow
 from idlelib.format import FormatRegion
 from idlelib.iomenu import IOBinding
 from idlelib.pyshell import PyShellEditorWindow, PyShellFileList
-from idlelib.undo import UndoDelegator
 from tkinter import Event, Text, Tk, messagebox
-from typing import Any, ClassVar, Final, TypeVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Final, TypeVar, cast
 
 from idlemypyextension import annotate, tktrio
+
+if TYPE_CHECKING:
+    from idlelib.editor import EditorWindow
+    from idlelib.undo import UndoDelegator
 
 DAEMON_TIMEOUT_MIN: Final = 5
 ACTION_TIMEOUT_MIN: Final = 5
@@ -1215,7 +1217,7 @@ def get_fake_editwin(root_tk: Tk) -> PyShellEditorWindow:
             """Make bind do nothing."""
 
             def __init__(self) -> None:
-                """Requires no arguments."""
+                """Blank Initialize."""
                 return
 
             bind = lambda x, y: None  # type: ignore[assignment]  # noqa

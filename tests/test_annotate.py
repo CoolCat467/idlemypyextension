@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Collection, Sequence
+from typing import TYPE_CHECKING
 
 import pytest
 from idlemypyextension import annotate
+
+if TYPE_CHECKING:
+    from collections.abc import Collection, Sequence
 
 
 def test_parse_error() -> None:

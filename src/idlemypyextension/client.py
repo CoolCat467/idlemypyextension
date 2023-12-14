@@ -47,7 +47,6 @@ import json
 import os
 import sys
 from collections import ChainMap
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from idlemypyextension.moduleguard import guard_imports
@@ -64,6 +63,8 @@ with guard_imports({"trio", "mypy"}):
     from mypy.version import __version__
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from typing_extensions import NotRequired
 
 

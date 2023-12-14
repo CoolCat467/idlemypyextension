@@ -28,9 +28,11 @@ __license__ = "Apache License, Version 2.0"
 
 
 import re
-from collections.abc import Callable, Collection, Generator, Sequence
 from tokenize import TokenInfo, generate_tokens, tok_name
-from typing import Any, Final, NamedTuple, NoReturn
+from typing import TYPE_CHECKING, Any, Final, NamedTuple, NoReturn
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Collection, Generator, Sequence
 
 TYPING_LOWER: Final = {"List", "Set", "Type", "Dict", "Tuple", "Overload"}
 
