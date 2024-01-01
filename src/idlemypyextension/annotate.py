@@ -37,19 +37,17 @@ if TYPE_CHECKING:
 TYPING_LOWER: Final = {"List", "Set", "Type", "Dict", "Tuple", "Overload"}
 
 
+def debug(message: str) -> None:
+    """Print debug message."""
+    # TODO: Censor username/user files
+    print(f"\n[{__title__}] DEBUG: {message}")
+
+
 class ParseError(Exception):
     """Raised on any type comment parse error.
 
     The 'comment' attribute contains the comment that produced the error.
     """
-
-    def __init__(self, comment: str | None = None) -> None:
-        """Initialize with comment."""
-        if comment is None:
-            comment = ""
-        elif hasattr(self, "add_note"):  # New in Python 3.11
-            self.add_note(comment)  # pragma: nocover
-        super().__init__(comment)
 
 
 class Token(NamedTuple):
@@ -163,6 +161,9 @@ class End(Token):
         super().__init__()
 
 
+TOKENIZE_PATTERN = re.compile(r"[-\w`]+(\s*(\.|:)\s*[-/\w]*)*")
+
+
 def tokenize(txt: str) -> list[Token]:
     """Translate a type comment into a list of tokens."""
     original = txt
@@ -184,7 +185,8 @@ def tokenize(txt: str) -> list[Token]:
             tokens.append(DottedName("..."))
             txt = txt[3:]
         else:
-            match_ = re.match(r"[-\w`]+(\s*(\.|:)\s*[-/\w]*)*", txt)
+            # match_ = re.match(r"[-\w`]+(\s*(\.|:)\s*[-/\w]*)*", txt)
+            match_ = TOKENIZE_PATTERN.match(txt)
             if not match_:
                 raise ParseError(f"Could not parse {txt!r} from {original!r}")
             fullname = match_.group(0)
@@ -199,7 +201,7 @@ def tokenize(txt: str) -> list[Token]:
             if fullname.startswith("pytz.tzfile."):
                 fullname = "datetime.tzinfo"
             if "-" in fullname or "/" in fullname:
-                print(f"{__file__}: {fullname!r} -> Any")
+                debug(f"tokenize bad fullname: {fullname!r} -> Any")
                 # Not a valid Python name; there are many places that
                 # generate these, so we just substitute Any rather
                 # than crashing.
@@ -217,8 +219,10 @@ def get_line_indent(text: str, char: str = " ") -> int:
     return index + 1
 
 
-def read_lambda(generator: Generator[TokenInfo, None, None]) -> str:
-    """Return lambda body text."""
+def read_lambda(
+    generator: Generator[TokenInfo, None, None],
+) -> tuple[str, bool]:
+    """Return lambda body text and if had over read error."""
     text = []
 
     brackets = 0  # Current number of brackets in use
@@ -227,7 +231,7 @@ def read_lambda(generator: Generator[TokenInfo, None, None]) -> str:
     for token in generator:
         string = token.string
         type_ = tok_name[token.type]
-        # print(f'{string = }')
+        # debug(f'{string = }')
         if type_ == "OP":
             if string in "([{":
                 # We have traveled in an bracket level
@@ -247,8 +251,16 @@ def read_lambda(generator: Generator[TokenInfo, None, None]) -> str:
             and has_args
             and not brackets
         ):
-            return "".join(text)
-    raise ParseError("Reading lambda failed")  # pragma: nocover
+            return ("".join(text), False)
+        if (
+            token.end[1] < len(token.line)
+            and string == ")"
+            and has_args
+            and brackets <= 0
+        ):
+            debug("read_lambda negative bracket counter, over-read.")
+            return ("".join(text)[:-1], True)
+    raise ParseError("Reading lambda failed")
 
 
 def read_fstring(
@@ -257,16 +269,19 @@ def read_fstring(
 ) -> str:
     """Return f-string text."""
     text = [starting_token.string]
+    match_pair = starting_token.string[1:]
 
     for token in generator:
         string = token.string
         type_ = tok_name[token.type]
-        # print(f'{string = }')
+        # debug(f'{string = }')
         if type_ == "FSTRING_START":
             string = read_fstring(token, generator)
         text.append(string)
-        if type_ == "FSTRING_END":
+        if type_ == "FSTRING_END" and string == match_pair:
             return "".join(text)
+    # I don't think it's possible for f-string to fail without tokenization
+    # errors before we get to that point.
     raise ParseError("Reading f-string failed")  # pragma: nocover
 
 
@@ -328,7 +343,17 @@ def tokenize_definition(
                     tokens.append(DottedName(string))
             elif default_arg and string == "lambda":
                 tokens.append(ArgumentDefault(string))
-                tokens.append(LambdaBody(read_lambda(token_generator)))
+                body, over_read_error = read_lambda(token_generator)
+                tokens.append(LambdaBody(body))
+                # If over read, handle left bracket level.
+                # Copy-paste of end bracket level from below:
+                if over_read_error:
+                    # Left a bracket level
+                    brackets -= 1
+                    assert not typedef
+                    assert default_arg
+                    default_arg -= 1
+                    tokens.append(EndSeparator(")"))
             elif default_arg:
                 # If defining argument default, add ArgumetDefault
                 if tokens and isinstance(tokens[-1], ArgumentDefault):
@@ -467,7 +492,7 @@ def tokenize_definition(
                 "Found ENDMARKER token while reading function definition",
             )
         else:  # pragma: nocover
-            print(f"[DEBUG] {token = }")
+            debug(f"{token = }")
             raise ParseError(
                 f"Unrecognized token type {tok_name[token.type]!r}",
             )
@@ -478,26 +503,35 @@ def tokenize_definition(
     return tokens, current_line_no - start_line
 
 
-def get_type_repr(name: str) -> str:
+def get_type_repr(name: str, ignore_modules: set[str] | None = None) -> str:
     """Return representation of name."""
-    for separator in (".", ":"):
+    if ignore_modules is None:
+        ignore_modules = set()
+    for separator in ".:":
         if separator in name:
             module, text = name.split(separator, 1)
             if module in ("typing", "mypy_extensions"):
                 if text in TYPING_LOWER:
                     return text.lower()
                 return text
+            if module in ignore_modules:
+                return text
     return name
 
 
-def get_typevalue_repr(typevalue: TypeValue) -> str:
+def get_typevalue_repr(
+    typevalue: TypeValue,
+    ignore_modules: set[str] | None = None,
+) -> str:
     """Return representation of ClassType."""
-    name = get_type_repr(typevalue.name)
+    if ignore_modules is None:
+        ignore_modules = set()
+    name = get_type_repr(typevalue.name, ignore_modules)
     if name in TYPING_LOWER:
         name = name.lower()
     args = []
     for arg in typevalue.args:
-        args.append(get_typevalue_repr(arg))
+        args.append(get_typevalue_repr(arg, ignore_modules))
     if not args:
         if name:
             return name
@@ -583,6 +617,18 @@ class Parser:
                 return types
             self.expect("|")
 
+    def read_dotted_name_with_spaces(self, add: str = "") -> DottedName:
+        """Parse dotted name token for modules with spaces in the filename."""
+        token = self.expect_type(DottedName)
+        if token.text is None:
+            self.fail("Expected token text to be string, got None")
+        if self.count_unprocessed_tokens() > 0 and isinstance(
+            self.peek(),
+            DottedName,
+        ):
+            return self.read_dotted_name_with_spaces(f"{add}{token.text} ")
+        return DottedName(f"{add}{token.text}")
+
     def parse_single(self) -> TypeValue:
         """Parse single, does not look for | unions. Do not use directly."""
         if self.lookup() == "[":
@@ -592,9 +638,11 @@ class Parser:
             args = self.parse_type_list()
             self.expect("]")
             return TypeValue("", args)
-        token = self.expect_type(DottedName)
-        if token.text is None:
-            self.fail("Expected token text to be string, got None")
+        # token = self.expect_type(DottedName)
+        # if token.text is None:
+        #     self.fail("Expected token text to be string, got None")
+        token = self.read_dotted_name_with_spaces()
+        assert token.text is not None
         if token.text == "Any":
             return TypeValue("Any")
         if token.text in {"mypy_extensions.NoReturn", "typing.NoReturn"}:
@@ -698,13 +746,22 @@ class Parser:
         """Return all tokens not processed."""
         return self.tokens[self.i : len(self.tokens)]
 
+    def count_unprocessed_tokens(self) -> int:
+        """Return number of unprocessed tokens."""
+        return len(self.tokens) - self.i
+
+
+def normalize_path(path: str) -> str:
+    """Make all paths unix paths."""
+    return path.replace("\\", "/")
+
 
 def get_annotation(
     annotation: dict[str, Any],
     get_line: Callable[[int], str],
 ) -> tuple[str, int]:
     """Return annotation and end line."""
-    # print(f"[DEBUG] Annotate: {annotation = }\n")
+    # debug(f"{annotation = }\n")
 
     # Get definition tokens
     try:
@@ -713,10 +770,10 @@ def get_annotation(
             get_line,
         )
     except ParseError:
-        print(f"Could not tokenize definition\n{annotation = }")
+        debug(f"Could not tokenize definition\n{annotation = }")
         raise
     except EOFError as exc:
-        print(f"[ERROR] Annotate: {annotation = }\n")
+        debug(f"{annotation = }")
         raise ParseError(
             "Reached End of File, expected end of definition",
         ) from exc
@@ -725,6 +782,13 @@ def get_annotation(
     signature = annotation["signature"]
     arg_tokens = [tokenize(arg) for arg in signature["arg_types"]]
     return_tokens = tokenize(signature["return_type"])
+
+    # Figure out module names that need to be ignored
+    filename = normalize_path(annotation.get("path", "")).rsplit("/", 1)[-1]
+    module_name = filename.rsplit(".", 1)[0]
+    ignore_modules: set[str] = set()
+    if module_name:
+        ignore_modules.add(module_name)
 
     # Find start of argument definition
     new_lines = ""
@@ -746,7 +810,7 @@ def get_annotation(
 
     # Find out which arguments we have to skip (*, **, /)
     skip_args: set[int] = set()
-    # print(f'{parser.rest_tokens() = }\n')
+    # debug(f'{parser.rest_tokens() = }')
     argument = 0
     argparser = Parser(parser.rest_tokens())
     while True:
@@ -767,7 +831,7 @@ def get_annotation(
             raise ParseError(
                 "Found End token during argument location handling",
             )
-    # print(f"{skip_args = } {len(arg_tokens) = } {argument = }")
+    # debug(f"{skip_args = } {len(arg_tokens) = } {argument = }")
 
     arg_place = len(arg_tokens) - argument
     if arg_place < 0:
@@ -775,13 +839,13 @@ def get_annotation(
         # not given
         skip_args.add(0)
         arg_place = -1
-    # print(f"{skip_args = }")
+    # debug(f"{skip_args = }")
 
     # Handle arguments
     argument = 0
     while True:
         token = parser.next()
-        # print(f"{token = } ({argument = })")
+        # debug(f"{token = } ({argument = })")
         if isinstance(token, Separator):
             if isinstance(token, EndSeparator):
                 assert token.text is not None
@@ -798,10 +862,16 @@ def get_annotation(
             if isinstance(parser.peek(), TypeDef):
                 parser.expect(":")
                 type_value = parser.parse_type()
-                type_text = ": " + str(type_value)
+                type_text = ": " + get_typevalue_repr(
+                    type_value,
+                    ignore_modules,
+                )
             elif argument not in skip_args:
                 type_value = Parser(arg_tokens[arg_place]).parse_type()
-                type_text = ": " + str(type_value)
+                type_text = ": " + get_typevalue_repr(
+                    type_value,
+                    ignore_modules,
+                )
             if isinstance(parser.peek(), DefaultDef):
                 parser.expect("=")
                 type_text += " = "
@@ -811,15 +881,15 @@ def get_annotation(
                     type_text += f"{parser.next().text}"
                 else:
                     type_text += str(parser.parse_type())
-            # print(f"{name}{type_text}")
+            # debug(f"{name}{type_text}")
             new_lines += f"{name}{type_text}"
             argument += 1
             arg_place += 1
         elif isinstance(token, End):  # pragma: no cover
-            print("Found End token during argument parsing")
+            debug("Found End token during argument parsing")
             parser.back()
             break
-    # print(f'{type_text = }')
+    # debug(f'{type_text = }')
 
     # Handle the end
     if isinstance(parser.peek(), EndDefinition | End):
@@ -827,7 +897,7 @@ def get_annotation(
             [ReturnTypeDef("->")] + return_tokens[:-1] + parser.rest_tokens()
         )
         parser.i = 0
-    # print(f'{parser.rest_tokens() = }')
+    # debug(f'{parser.rest_tokens() = }')
     parser.expect("->")
     new_lines += " -> "
     ret_type = str(parser.parse_type())
@@ -842,7 +912,7 @@ def get_annotation(
     return new_lines, line_count
 
 
-def run(annotation: dict[str, str]) -> None:  # pragma: nocover
+def run(annotation: dict[str, object]) -> None:  # pragma: nocover
     """Run test of module."""
 
     def get_line(line: int) -> str:
@@ -859,4 +929,4 @@ def run(annotation: dict[str, str]) -> None:  # pragma: nocover
 
 if __name__ == "__main__":  # pragma: nocover
     print(f"{__title__}\nProgrammed by {__author__}.\n")
-    # run()
+    # run(annotation)

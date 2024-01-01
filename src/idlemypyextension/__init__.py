@@ -8,9 +8,6 @@ __title__ = "idlemypyextension"
 __author__ = "CoolCat467"
 __license__ = "GPLv3"
 __version__ = "0.2.6"
-__ver_major__ = 0
-__ver_minor__ = 2
-__ver_patch__ = 6
 
 import json
 import math
@@ -903,13 +900,24 @@ class idlemypyextension:  # noqa: N801
             )
         else:
             function = f"{file}:{line}"
+
+            command = " ".join(
+                [
+                    "dmypy",
+                    f'--status-file="{self.status_file}"',
+                    "suggest",
+                    f'"{function}"',
+                ],
+            )
+            debug(f"{command = }")
+
             response = await client.suggest(
                 self.status_file,
                 function=function,
                 do_json=True,
                 timeout=self.action_timeout,
             )
-        # debug(f'suggest {response = }')
+        debug(f"suggest {response = }")
 
         errors = ""
         if response.get("error"):
@@ -922,6 +930,8 @@ class idlemypyextension:  # noqa: N801
             if errors:
                 errors += "\n\n"
             errors += f'stderr:\n{response["stderr"]}'
+        if "out" not in response and not errors:
+            errors += "No response from dmypy daemon."
 
         # Display errors
         if errors:

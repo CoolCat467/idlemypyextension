@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+from io import StringIO
+from tokenize import generate_tokens
 from typing import TYPE_CHECKING
 
 import pytest
@@ -230,31 +232,35 @@ def test_invalid_tokenize_definition() -> None:
 
 
 @pytest.mark.parametrize(
-    ("function_text", "arg_types", "return_type", "result"),
+    ("function_text", "arg_types", "return_type", "result", "filename"),
     [
         (
             """def format_id():""",
             [],
             "str",
             """def format_id() -> str:""",
+            None,
         ),
         (
             """def format_id(user):""",
             ["int"],
             "str",
             """def format_id(user: int) -> str:""",
+            None,
         ),
         (
             """def format_name(name = "TEMP"):""",
             ["str"],
             "str",
             """def format_name(name: str = "TEMP") -> str:""",
+            None,
         ),
         (
             """def sleep(time = 1 / 3):""",
             ["float"],
             "None",
             """def sleep(time: float = 1 / 3) -> None:""",
+            None,
         ),
         (
             """def format_id(
@@ -265,12 +271,14 @@ def test_invalid_tokenize_definition() -> None:
             """def format_id(
     user: int  # format function inline comment
 ) -> str:""",
+            None,
         ),
         (
             """def foo(x: int, longer_name: str) -> None:""",
             ["int", "str"],
             "None",
             """def foo(x: int, longer_name: str) -> None:""",
+            None,
         ),
         (
             """def waffle_magic(
@@ -281,6 +289,7 @@ def test_invalid_tokenize_definition() -> None:
             """def waffle_magic(
     self, obj: wafflemodule.Waffle, action: str
 ) -> None:""",
+            None,
         ),
         (
             """def waffle_magic(
@@ -291,6 +300,7 @@ def test_invalid_tokenize_definition() -> None:
             """def waffle_magic(
     self, obj: int | float | complex | wafflemodule.Waffle, action: str, sand: int
 ) -> None:""",
+            None,
         ),
         (
             """def get_annotation(
@@ -303,6 +313,7 @@ def test_invalid_tokenize_definition() -> None:
     annotation: dict[str, Any],
     get_line: Callable[[int], str]
 ) -> tuple[str, int]:""",
+            None,
         ),
         (
             """def potato(
@@ -313,6 +324,7 @@ def test_invalid_tokenize_definition() -> None:
             """def potato(
     get_line: Callable[[int], str] = lambda lno: GLOBAL_LINES[lno]
 ) -> bool:""",
+            None,
         ),
         (
             """def potato(
@@ -323,6 +335,7 @@ def test_invalid_tokenize_definition() -> None:
             """def potato(
     get_line: Callable[[int], str] = ...
 ) -> bool:""",
+            None,
         ),
         (
             """def get_timezone_or_utc(
@@ -333,92 +346,107 @@ def test_invalid_tokenize_definition() -> None:
             """def get_timezone_or_utc(
     zone: int | None = None
 ) -> datetime.tzinfo | int:""",
+            None,
         ),
-        ("def meep(x: T):", ["T`1"], "T`1", "def meep(x: T) -> T:"),
-        ("def meep(x: T):", ["T`1"], "T-1", "def meep(x: T) -> Any:"),
+        ("def meep(x: T):", ["T`1"], "T`1", "def meep(x: T) -> T:", None),
+        ("def meep(x: T):", ["T`1"], "T-1", "def meep(x: T) -> Any:", None),
         (
             "async def pop_obj(obj_id: int):",
             ["float"],
             "object",
             "async def pop_obj(obj_id: int) -> object:",
+            None,
         ),
         (
             "async def pop_obj(self, obj_id: int, /, **kwargs):",
             ["float", "str"],
             "object",
             "async def pop_obj(self, obj_id: int, /, **kwargs: str) -> object:",
+            None,
         ),
         (
             "def apply(self, funcname, /, *args, **kwargs):",
             ["str", "Any", "Any"],
             "Any",
             "def apply(self, funcname: str, /, *args: Any, **kwargs: Any) -> Any:",
+            None,
         ),
         (
             "def apply(self, function, /, *args, **kwargs):",
             ["Callable[ArgsT, RetT]", "ArgsT.args", "ArgsT.kwargs"],
             "RetT",
             "def apply(self, function: Callable[ArgsT, RetT], /, *args: ArgsT.args, **kwargs: ArgsT.kwargs) -> RetT:",
+            None,
         ),
         (
             "def __repr__(self):",
             [],
             "str",
             "def __repr__(self) -> str:",
+            None,
         ),
         (
             "def __repr__(self,):",
             [],
             "str",
             "def __repr__(self, ) -> str:",
+            None,
         ),
         (
             "def get(valuetype = int):",
             ["type"],
             "object",
             "def get(valuetype: type = int) -> object:",
+            None,
         ),
         (
             "def get(valuetype = int,):",
             ["type"],
             "object",
             "def get(valuetype: type = int, ) -> object:",
+            None,
         ),
         (
             "def bitfield(self, bits: int = ~ALL_BITS):",
             ["int"],
             "int",
             "def bitfield(self, bits: int = ~ALL_BITS) -> int:",
+            None,
         ),
         (
             "def bitfield(self, bits = ~ALL_BITS):",
             ["int"],
             "int",
             "def bitfield(self, bits: int = ~ALL_BITS) -> int:",
+            None,
         ),
         (
             "def meep(x: T | None):",
             ["Union[T, None]"],
             "T`1",
             "def meep(x: T | None) -> T:",
+            None,
         ),
         (
             "def meep(x):",
             ["Callable[..., Any]"],
             "Any",
             "def meep(x: Callable[..., Any]) -> Any:",
+            None,
         ),
         (
             "def read_global(self, length = GLOBALSTART+GLOBALREAD):",
             ["int"],
             "int",
             "def read_global(self, length: int = GLOBALSTART + GLOBALREAD) -> int:",
+            None,
         ),
         (
             "def meep(x = A @ B):",
             ["Matrix"],
             "Vector",
             "def meep(x: Matrix = A @ B) -> Vector:",
+            None,
         ),
         (
             """def line_len(
@@ -429,6 +457,7 @@ def test_invalid_tokenize_definition() -> None:
             """def line_len(
     get_line: Callable[[], str] = ...
 ) -> int:""",
+            None,
         ),
         (
             """def line_len(
@@ -439,12 +468,14 @@ def test_invalid_tokenize_definition() -> None:
             """def line_len(
     get_line: Callable[[], str] = ...
 ) -> int | None:""",
+            None,
         ),
         (
             """def test(value: int = -~ALL_BITS):""",
             ["int"],
             "None",
             """def test(value: int = -~ALL_BITS) -> None:""",
+            None,
         ),
         (
             """def potato(
@@ -457,6 +488,7 @@ def test_invalid_tokenize_definition() -> None:
     get_line: Callable[[int], str] = lambda lno: "",
     lines: int = 0,
 ) -> bool:""",
+            None,
         ),
         (
             """def potato(
@@ -469,6 +501,7 @@ def test_invalid_tokenize_definition() -> None:
     get_line: Callable[[int, str], str] = lambda lno, default: (default),
     lines: int = 0,
 ) -> bool:""",
+            None,
         ),
         (
             """def potato(
@@ -481,30 +514,53 @@ def test_invalid_tokenize_definition() -> None:
     get_line: Callable[[int, str], str] = lambda lno, default: (default),
     lines: int = 0,
 ) -> bool:""",
+            None,
+        ),
+        (
+            """def potato(get_line: Callable[[int, str], str] = lambda lno, default: default) -> bool:""",
+            ["Callable[[int, str], str]"],
+            "bool",
+            """def potato(get_line: Callable[[int, str], str] = lambda lno, default: default) -> bool:""",
+            None,
         ),
         (
             """def wrapper(**kwargs) -> Any:""",
             ["Any"],
             "Any",
             """def wrapper(**kwargs: Any) -> Any:""",
+            None,
         ),
         (
             """def frog(numbers = (2, 3)) -> int:""",
             ["Tuple[int, int]"],
             "int",
             """def frog(numbers: tuple[int, int] = (2, 3)) -> int:""",
+            None,
         ),
         (
             """def log_active_exception(path = f'{ROOT_DIR}/logs/latest.txt'):""",
             ["str"],
             "None",
             """def log_active_exception(path: str = f'{ROOT_DIR}/logs/latest.txt') -> None:""",
+            None,
         ),
         (
             """def log_active_exception(path = f'{ROOT_DIR}/logs/latest.txt'):""",
             ["str"],
             "Overload(int, str)",
             """def log_active_exception(path: str = f'{ROOT_DIR}/logs/latest.txt') -> overload[int, str]:""",
+            None,
+        ),
+        (
+            """def valid_moves(turn: bool, lines, boxes) -> Generator[Action, None, None]:""",
+            [
+                "bool",
+                "dots and boxes:Sequence[dots and boxes.Sequence[int]]",
+                "dots and boxes:Sequence[dots and boxes.Sequence[int]]",
+            ],
+            "dots and boxes:Generator[dots and boxes.Action, None, None]",
+            "def valid_moves(turn: bool, lines: Sequence[Sequence[int]], boxes: Sequence[Sequence[int]]) -> Generator[Action, None, None]:",
+            "dots and boxes",
         ),
     ],
 )
@@ -513,15 +569,20 @@ def test_get_annotation(
     arg_types: Sequence[str],
     return_type: str,
     result: str,
+    filename: str | None,
 ) -> None:
     annotation_dict = {
         "line": 0,
         "signature": {"arg_types": arg_types, "return_type": return_type},
     }
+    if filename:
+        annotation_dict["path"] = f"/{filename}.py"
 
     lines = function_text.splitlines(True)
 
     def get_line(line_no: int) -> str:
+        if line_no >= len(lines):
+            return ""
         return lines[line_no]
 
     returned, _ = annotate.get_annotation(annotation_dict, get_line)
@@ -555,6 +616,27 @@ def test_get_annotation_fstring_3_12() -> None:
     assert returned == result
 
 
+# I don't think it's possible for f-string to fail without tokenization errors
+# before we get to that point.
+# @pytest.mark.skipif(
+#     sys.version_info < (3, 12),
+#     reason="F-string tokenization worked differently prior to 3.12",
+# )
+# def test_read_fstring_failure() -> None:
+#     text = '''f'Happy birthday, {username}!{f"}'; pass'''
+#
+#     with StringIO(text) as file:
+#         tokenize_gen = generate_tokens(file.readline)
+#         first_read = next(tokenize_gen)
+#         assert first_read.type == 61 # (FSTRING_START)
+#         assert first_read.string == "f'"
+#         with pytest.raises(
+#             annotate.ParseError,
+#             match="Reading f-string failed",
+#         ):
+#             print(annotate.read_fstring(first_read, tokenize_gen))
+
+
 def test_get_annotation_tokenization_falure() -> None:
     annotation_dict = {
         "line": 0,
@@ -570,6 +652,46 @@ def test_get_annotation_tokenization_falure() -> None:
         match="Did not expect second definition keyword",
     ):
         annotate.get_annotation(annotation_dict, get_line)
+
+
+def test_read_lambda_failure() -> None:
+    text = """ x: GLOBAL_MAP[x]"""
+
+    with StringIO(text) as file:
+        with pytest.raises(
+            annotate.ParseError,
+            match="Reading lambda failed",
+        ):
+            annotate.read_lambda(generate_tokens(file.readline))
+
+
+def test_read_lambda_over_read_detection() -> None:
+    text = """ line_no, default: f'{line_no}: {default}') -> None:"""
+
+    with StringIO(text) as file:
+        content, over_read_error = annotate.read_lambda(
+            generate_tokens(file.readline),
+        )
+        assert content == " line_no, default: f'{line_no}: {default}'"
+        assert over_read_error
+
+
+@pytest.mark.parametrize(
+    "end",
+    [
+        "\n",
+        ",",
+    ],
+)
+def test_read_lambda(end: str) -> None:
+    text = f""" x: GLOBAL_MAP[x]{end}"""
+
+    with StringIO(text) as file:
+        content, over_read_error = annotate.read_lambda(
+            generate_tokens(file.readline),
+        )
+        assert not over_read_error
+        assert content == text[:-1], f"{content!r} != {text!r}"
 
 
 def test_get_annotation_tokenization_eof_falure() -> None:
@@ -593,7 +715,7 @@ def test_get_annotation_tokenization_eof_falure() -> None:
 
 def test_parse_type_list_no_close_failure() -> None:
     parser = annotate.Parser(
-        [annotate.DottedName("int"), annotate.DottedName("notend")],
+        [annotate.DottedName("int"), annotate.Separator("notend")],
     )
     with pytest.raises(
         annotate.ParseError,

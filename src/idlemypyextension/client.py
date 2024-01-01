@@ -160,6 +160,7 @@ def get_status(status_file: str) -> tuple[int, str]:
 
 def _read_request_response_json(request_response: str | bytes) -> Response:
     """Read request response json."""
+    # debug(f'{request_response = }')
     try:
         data = json.loads(request_response)
     except Exception:
