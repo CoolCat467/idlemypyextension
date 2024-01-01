@@ -7,7 +7,7 @@ from __future__ import annotations
 __title__ = "idlemypyextension"
 __author__ = "CoolCat467"
 __license__ = "GPLv3"
-__version__ = "0.2.6"
+__version__ = "0.2.7"
 
 import json
 import math
