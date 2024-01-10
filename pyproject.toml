@@ -33,7 +33,7 @@ classifiers = [
 keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
     "mypy~=1.8.0",
-    "trio~=0.23.2",
+    "trio~=0.24.0",
 ]
 
 [tool.setuptools.dynamic]
@@ -116,17 +116,17 @@ select = [
     "W",     # Warning
     "YTT",   # flake8-2020
 ]
-ignore = [
+extend-ignore = [
     'E501',   # line-too-long
     "S101",   # use of assert for tests and type narrowing
-    "D203",  # One blank line before class
+    "D203",   # One blank line before class
     "D204",   # blank line thing
     "D211",   # no-blank-line-before-class
     "D213",   # multi-line-summary-second-line
-##    "E203",  # conflicts with black
-##    "E402",  # module level import not at top of file
+#    "E203",  # conflicts with black
+#    "E402",  # module level import not at top of file
     "SIM117", # Use multiple with statements at the same time
-    "D417",  # "Missing argument descriptions"
+    "D417",   # "Missing argument descriptions"
 ]
 
 [tool.ruff.per-file-ignores]
