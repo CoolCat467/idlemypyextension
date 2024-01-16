@@ -308,7 +308,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             to_comment = [only_filename]
 
             # Find first line in target file or use start_line
-            if not files[only_filename]:
+            if not files.get(only_filename):
                 other_files_comment_line = start_line
             else:
                 other_files_comment_line = min(
@@ -329,6 +329,8 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
                 )
 
         for target_filename in to_comment:
+            if target_filename not in files:
+                continue
             file_comments = self.add_type_comments_for_file(
                 target_filename,
                 files[target_filename],
