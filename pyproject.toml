@@ -15,7 +15,7 @@ requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Natural Language :: English",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -34,6 +34,7 @@ keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
     "mypy~=1.8.0",
     "trio~=0.24.0",
+    "mttkinter~=0.6.1",
 ]
 
 [tool.setuptools.dynamic]
@@ -88,7 +89,6 @@ line-length = 79
 fix = true
 
 include = ["*.py", "*.pyi", "**/pyproject.toml"]
-
 select = [
     "A",     # flake8-builtins
     "ASYNC", # flake8-async
@@ -117,14 +117,12 @@ select = [
     "YTT",   # flake8-2020
 ]
 extend-ignore = [
-    'E501',   # line-too-long
+    "E501",   # line-too-long
     "S101",   # use of assert for tests and type narrowing
     "D203",   # One blank line before class
     "D204",   # blank line thing
     "D211",   # no-blank-line-before-class
     "D213",   # multi-line-summary-second-line
-#    "E203",  # conflicts with black
-#    "E402",  # module level import not at top of file
     "SIM117", # Use multiple with statements at the same time
     "D417",   # "Missing argument descriptions"
 ]
