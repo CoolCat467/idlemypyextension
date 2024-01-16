@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-# IDLE mypy daemon integration extension
+# TKTrio - Run Trio on top of Tkinter.
 # Copyright (C) 2023  CoolCat467
 #
 # This program is free software: you can redistribute it and/or modify
@@ -36,7 +36,8 @@ from typing import TYPE_CHECKING, Any, TypeGuard
 
 from idlemypyextension.moduleguard import guard_imports
 
-with guard_imports({"trio", "outcome", "exceptiongroup"}):
+with guard_imports({"trio", "exceptiongroup", "mttkinter"}):
+    import mttkinter
     import trio
 
     if sys.version_info < (3, 11):
@@ -47,6 +48,10 @@ if TYPE_CHECKING:
 
     from outcome import Outcome
     from typing_extensions import Self
+
+
+# Use mttkinter somewhere so pycln doesn't eat it
+assert mttkinter.mtTkinter.TRUE
 
 
 def install_protocol_override(
@@ -139,7 +144,6 @@ class TkTrioRunner:
         "root",
         "call_tk_close",
         "nursery",
-        "token",
         "run_status",
         "recieved_loop_close_request",
         "installed_proto_override",
@@ -179,7 +183,6 @@ class TkTrioRunner:
         self.call_tk_close = restore_close or root.destroy
 
         self.nursery: trio.Nursery
-        self.token: trio.lowlevel.TrioToken
         self.run_status = RunStatus.NO_TASK
         self.recieved_loop_close_request = False
         self.installed_proto_override = False
@@ -201,29 +204,24 @@ class TkTrioRunner:
         if self.run_status == RunStatus.NO_TASK:
             # No need to reschedule, is already closed.
             return
+
         if self.run_status == RunStatus.TRIO_STARTING:
             # Reschedule close for later, in process of starting.
             self.schedule_task(self.cancel_current_task)
             return
+
         if self.run_status == RunStatus.TRIO_RUNNING_CANCELING:
             # Already scheduled to cancel
             return
+
         self.run_status = RunStatus.TRIO_RUNNING_CANCELING
         try:
             self.nursery.cancel_scope.cancel()
         except RuntimeError as exc:
             print_exception(exc)
+            # probably "must be called from async context" error
         else:
             self.run_status = RunStatus.TRIO_RUNNING_CANCELED
-            # probably "must be called from async context" error
-
-    ##        def cancel() -> None:
-    ##            print("cancel sync called")
-    ##            try:
-    ##                self.nursery.cancel_scope.cancel()
-    ##            finally:
-    ##                self.run_status = RunStatus.TRIO_RUNNING_CANCELED
-    ##        self.token.run_sync_soon(cancel)
 
     def _start_async_task(
         self,
@@ -257,7 +255,6 @@ class TkTrioRunner:
             }
             self.run_status = RunStatus.NO_TASK
             del self.nursery
-            del self.token
             try:
                 outcome.unwrap()
             except ExceptionGroup as exc:
@@ -281,7 +278,6 @@ class TkTrioRunner:
             restrict_keyboard_interrupt_to_checkpoints=True,
             strict_exception_groups=True,
         )
-        self.token = trio.lowlevel.current_trio_token()
 
     def get_del_window_proto(
         self,

@@ -3,6 +3,8 @@
 # Extensively modified by CoolCat467
 # from https://github.com/dropbox/pyannotate/blob/master/pyannotate_tools/annotations/parse.py
 
+from __future__ import annotations
+
 # Pyannotate is licensed under the terms of the Apache License, Version 2.0,
 # reproduced below.
 #   Copyright (c) 2017 Dropbox, Inc.
@@ -18,8 +20,6 @@
 #   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
-
-from __future__ import annotations
 
 __title__ = "Annotate"
 __author__ = "CoolCat467"
