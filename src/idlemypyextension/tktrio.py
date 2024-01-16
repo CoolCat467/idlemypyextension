@@ -31,14 +31,14 @@ import weakref
 from enum import IntEnum, auto
 from functools import partial, wraps
 from tkinter import messagebox
-from traceback import print_exception
+from traceback import format_exception, print_exception
 from typing import TYPE_CHECKING, Any, TypeGuard
 
 from idlemypyextension.moduleguard import guard_imports
 
 with guard_imports({"trio", "exceptiongroup", "mttkinter"}):
-    import mttkinter
     import trio
+    from mttkinter import mtTkinter
 
     if sys.version_info < (3, 11):
         from exceptiongroup import ExceptionGroup
@@ -51,7 +51,13 @@ if TYPE_CHECKING:
 
 
 # Use mttkinter somewhere so pycln doesn't eat it
-assert mttkinter.mtTkinter.TRUE
+assert mtTkinter.TRUE
+
+
+def debug(message: object) -> None:
+    """Print debug message."""
+    # TODO: Censor username/user files
+    print(f"\n[{__title__}] DEBUG: {message}")
 
 
 def install_protocol_override(
@@ -194,9 +200,11 @@ class TkTrioRunner:
         try:
             self.root.after_idle(function, *args)
         except RuntimeError as exc:
-            print_exception(exc)
+            debug(f"Exception scheduling task {function = }")
             # probably "main thread is not in main loop" error
-            print(f"exception scheduling task {function = }")
+            # mtTkinter is supposed to fix this sort of issue
+            print_exception(exc)
+
             self.cancel_current_task()
 
     def cancel_current_task(self) -> None:
@@ -218,8 +226,20 @@ class TkTrioRunner:
         try:
             self.nursery.cancel_scope.cancel()
         except RuntimeError as exc:
-            print_exception(exc)
             # probably "must be called from async context" error
+            # because the exception that triggered this was from
+            # a start group tick failing because of start_soon
+            # not running from main thread because thread lock shenanigans
+            print_exception(exc)
+
+            # We can't even show an error properly because of the same
+            # issue!
+            try:
+                self.show_irrecoverable_error_stopping(
+                    "".join(format_exception(exc)),
+                )
+            except RuntimeError as exc:
+                print_exception(exc)
         else:
             self.run_status = RunStatus.TRIO_RUNNING_CANCELED
 
@@ -236,15 +256,12 @@ class TkTrioRunner:
         async def run_nursery() -> None:
             """Run nursery."""
             assert self.run_status == RunStatus.TRIO_STARTING
-            async with trio.open_nursery(True) as nursery:
+            async with trio.open_nursery(
+                strict_exception_groups=True,
+            ) as nursery:
                 self.nursery = nursery
                 self.run_status = RunStatus.TRIO_RUNNING
                 self.nursery.start_soon(function)
-                ##try:
-                ##    while not self.nursery.cancel_scope.cancel_called:
-                ##        await trio.sleep(0)
-                ##finally:
-                ##    self.run_status = RunStatus.TRIO_RUNNING_CANCELED
             return
 
         def done_callback(outcome: Outcome[None]) -> None:
@@ -260,13 +277,10 @@ class TkTrioRunner:
             except ExceptionGroup as exc:
                 print_exception(exc)
 
-        # if evil_spawn:
-        #     trio.lowlevel.spawn_system_task(
-        #         wrap_in_cancel, True,
-        #     )
-        #     return
-
-        assert self.run_status == RunStatus.NO_TASK
+        if self.run_status != RunStatus.NO_TASK:
+            raise RuntimeError(
+                "Cannot run more than one trio instance at once.",
+            )
 
         self.run_status = RunStatus.TRIO_STARTING
 
@@ -295,7 +309,9 @@ class TkTrioRunner:
                 # Error happened and cancel failed
                 # Hopefully will be ok because closing host loop
                 self.run_status = RunStatus.NO_TASK
-                print("Canceling -> No Task, error happened during canceling.")
+                debug(
+                    "Changing run status Canceling -> No Task, error happened during canceling.",
+                )
             if self.run_status == RunStatus.TRIO_RUNNING:
                 # Cancel it if not already canceled
                 self.cancel_current_task()
@@ -346,6 +362,22 @@ class TkTrioRunner:
             parent=self.root,
         )
 
+    def show_irrecoverable_error_stopping(
+        self,
+        extra_message: str = "",
+    ) -> None:
+        """Show warning that previous trio run needs to stop."""
+        messagebox.showwarning(
+            title="Irrecoverable Error While Stopping",
+            message=(
+                "Encountered an irrecoverable error stopping a previous "
+                "Trio run. Please restart IDLE and report this on Github at "
+                "https://github.com/CoolCat467/idlemypyextension/issues"
+                f"{extra_message}"
+            ),
+            parent=self.root,
+        )
+
     def no_start_trio_is_stopping(self) -> None:
         """Show warning that previous trio run needs to stop."""
         messagebox.showwarning(
@@ -359,6 +391,14 @@ class TkTrioRunner:
         """Schedule async function for the future."""
         # If host loop requested to close, do not run any more tasks.
         if self.recieved_loop_close_request:
+            return None
+
+        if self.run_status == RunStatus.TRIO_RUNNING_CANCELING:
+            # Task status is in a limbo state where it tried to
+            # cancel the nursery but something went wrong.
+            # This should not happen with mtTkinter's fixes, but
+            # it might still be a possibility.
+            self.show_irrecoverable_error_stopping()
             return None
 
         if self.run_status == RunStatus.TRIO_RUNNING_CANCELED:
@@ -421,6 +461,7 @@ def run() -> None:
     # Wait a tiny bit so main loop is running from main thread
     root.after(10, trigger_trio_runs)
     print("synchronous after trio run start")
+    # If testing without IDLE, uncomment the line below:
     # root.mainloop()
 
 
