@@ -2,29 +2,51 @@
 
 # Programmed by CoolCat467
 
+from __future__ import annotations
+
+# IDLE mypy daemon integration extension
+# Copyright (C) 2023  CoolCat467
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 __title__ = "TKTrio"
 __author__ = "CoolCat467"
-__license__ = "GPLv3"
+__license__ = "GNU General Public License Version 3"
 __version__ = "0.1.0"
 
 import sys
 import tkinter as tk
 import weakref
-from collections.abc import Awaitable, Callable
 from enum import IntEnum, auto
 from functools import partial, wraps
 from tkinter import messagebox
 from traceback import print_exception
-from typing import Any, TypeGuard
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from idlemypyextension.moduleguard import guard_imports
 
 with guard_imports({"trio", "outcome", "exceptiongroup"}):
     import trio
-    from outcome import Outcome
 
     if sys.version_info < (3, 11):
         from exceptiongroup import ExceptionGroup
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from outcome import Outcome
+    from typing_extensions import Self
 
 
 def install_protocol_override(
@@ -77,6 +99,7 @@ class RunStatus(IntEnum):
     """
 
     TRIO_RUNNING_CANCELED = auto()
+    TRIO_RUNNING_CANCELING = auto()
     TRIO_RUNNING = auto()
     TRIO_STARTING = auto()
     NO_TASK = auto()
@@ -116,6 +139,7 @@ class TkTrioRunner:
         "root",
         "call_tk_close",
         "nursery",
+        "token",
         "run_status",
         "recieved_loop_close_request",
         "installed_proto_override",
@@ -124,10 +148,10 @@ class TkTrioRunner:
 
     def __new__(
         cls,
-        root: tk.Misc,
+        root: tk.Wm | tk.Misc,
         *args: Any,
         **kwargs: Any,
-    ) -> "TkTrioRunner":
+    ) -> Self:
         """Either return new instance or get existing runner from root."""
         if not is_tk_wm_and_misc_subclass(root):
             raise ValueError("Must be subclass of both tk.Misc and tk.Wm")
@@ -140,7 +164,7 @@ class TkTrioRunner:
 
     def __init__(
         self,
-        root: tk.Misc | tk.Wm,
+        root: tk.Wm | tk.Misc,
         restore_close: Callable[[], Any] | None = None,
     ) -> None:
         """Initialize trio runner."""
@@ -155,6 +179,7 @@ class TkTrioRunner:
         self.call_tk_close = restore_close or root.destroy
 
         self.nursery: trio.Nursery
+        self.token: trio.lowlevel.TrioToken
         self.run_status = RunStatus.NO_TASK
         self.recieved_loop_close_request = False
         self.installed_proto_override = False
@@ -168,6 +193,7 @@ class TkTrioRunner:
         except RuntimeError as exc:
             print_exception(exc)
             # probably "main thread is not in main loop" error
+            print(f"exception scheduling task {function = }")
             self.cancel_current_task()
 
     def cancel_current_task(self) -> None:
@@ -179,8 +205,25 @@ class TkTrioRunner:
             # Reschedule close for later, in process of starting.
             self.schedule_task(self.cancel_current_task)
             return
-        self.nursery.cancel_scope.cancel()
-        self.run_status = RunStatus.TRIO_RUNNING_CANCELED
+        if self.run_status == RunStatus.TRIO_RUNNING_CANCELING:
+            # Already scheduled to cancel
+            return
+        self.run_status = RunStatus.TRIO_RUNNING_CANCELING
+        try:
+            self.nursery.cancel_scope.cancel()
+        except RuntimeError as exc:
+            print_exception(exc)
+        else:
+            self.run_status = RunStatus.TRIO_RUNNING_CANCELED
+            # probably "must be called from async context" error
+
+    ##        def cancel() -> None:
+    ##            print("cancel sync called")
+    ##            try:
+    ##                self.nursery.cancel_scope.cancel()
+    ##            finally:
+    ##                self.run_status = RunStatus.TRIO_RUNNING_CANCELED
+    ##        self.token.run_sync_soon(cancel)
 
     def _start_async_task(
         self,
@@ -214,6 +257,7 @@ class TkTrioRunner:
             }
             self.run_status = RunStatus.NO_TASK
             del self.nursery
+            del self.token
             try:
                 outcome.unwrap()
             except ExceptionGroup as exc:
@@ -237,6 +281,7 @@ class TkTrioRunner:
             restrict_keyboard_interrupt_to_checkpoints=True,
             strict_exception_groups=True,
         )
+        self.token = trio.lowlevel.current_trio_token()
 
     def get_del_window_proto(
         self,
@@ -250,6 +295,11 @@ class TkTrioRunner:
                 self.root.withdraw()
             self.recieved_loop_close_request = True
             # If a task is still running
+            if self.run_status == RunStatus.TRIO_RUNNING_CANCELING:
+                # Error happened and cancel failed
+                # Hopefully will be ok because closing host loop
+                self.run_status = RunStatus.NO_TASK
+                print("Canceling -> No Task, error happened during canceling.")
             if self.run_status == RunStatus.TRIO_RUNNING:
                 # Cancel it if not already canceled
                 self.cancel_current_task()
@@ -333,7 +383,7 @@ class TkTrioRunner:
             return None
 
         if self.run_status != RunStatus.NO_TASK:
-            raise RuntimeError("Invalid run status")
+            raise RuntimeError(f"Invalid run status {self.run_status!r}")
 
         # If we have not installed the protocol override,
         if not self.installed_proto_override:
@@ -362,7 +412,7 @@ def run() -> None:
                 raise
         return "trio done!"
 
-    root = tk.Tk(className="ClassName")
+    root = tk.Tk(className="Trio Test")
 
     def trigger_trio_runs() -> None:
         trio_run = TkTrioRunner(root)
@@ -375,7 +425,7 @@ def run() -> None:
     # Wait a tiny bit so main loop is running from main thread
     root.after(10, trigger_trio_runs)
     print("synchronous after trio run start")
-    root.mainloop()
+    # root.mainloop()
 
 
 if __name__ == "__main__":

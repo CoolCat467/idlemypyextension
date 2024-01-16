@@ -1,8 +1,7 @@
 """Annotate - Annotate functions given signature."""
 
 # Extensively modified by CoolCat467
-
-# Extensively modified from https://github.com/dropbox/pyannotate/blob/master/pyannotate_tools/annotations/parse.py
+# from https://github.com/dropbox/pyannotate/blob/master/pyannotate_tools/annotations/parse.py
 
 # Pyannotate is licensed under the terms of the Apache License, Version 2.0,
 # reproduced below.
@@ -44,10 +43,7 @@ def debug(message: str) -> None:
 
 
 class ParseError(Exception):
-    """Raised on any type comment parse error.
-
-    The 'comment' attribute contains the comment that produced the error.
-    """
+    """Raised on any type comment parse error."""
 
 
 class Token(NamedTuple):
@@ -524,8 +520,6 @@ def get_typevalue_repr(
     ignore_modules: set[str] | None = None,
 ) -> str:
     """Return representation of ClassType."""
-    if ignore_modules is None:
-        ignore_modules = set()
     name = get_type_repr(typevalue.name, ignore_modules)
     if name in TYPING_LOWER:
         name = name.lower()
