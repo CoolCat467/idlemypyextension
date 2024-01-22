@@ -117,14 +117,14 @@ select = [
     "YTT",   # flake8-2020
 ]
 extend-ignore = [
-    "E501",   # line-too-long
-    "S101",   # use of assert for tests and type narrowing
     "D203",   # One blank line before class
     "D204",   # blank line thing
     "D211",   # no-blank-line-before-class
     "D213",   # multi-line-summary-second-line
-    "SIM117", # Use multiple with statements at the same time
     "D417",   # "Missing argument descriptions"
+    "E501",   # line-too-long
+    "S101",   # use of assert for tests and type narrowing
+    "SIM117", # Use multiple with statements at the same time
 ]
 
 [tool.ruff.per-file-ignores]

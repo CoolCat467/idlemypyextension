@@ -118,6 +118,21 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         if not os.path.exists(self.mypy_folder):
             os.mkdir(self.mypy_folder)
 
+        # mtTkinter does some shenanigans and basically in a few cases
+        # there can be an exception during IDLE's root window's destroy
+        # function. mtTkinter is still fixing issues, just not on application
+        # root. We could fix it and have application root call mtTkinter's
+        # initialization as well, but that would be redundant. So what we
+        # do is revert mtTkinter's shenanigans on the destroy function
+        # so it doesn't fail later when IDLE is shuttind down.
+        main_root = self.flist.root
+        if (
+            hasattr(main_root, "tk")
+            and not hasattr(main_root.tk, "_destroying")
+            and hasattr(main_root, "__original__destroy")
+        ):
+            main_root.destroy = getattr(main_root, "__original__destroy")
+
         self.triorun = tktrio.TkTrioRunner(
             self.editwin.top,
             self.editwin.close,
@@ -316,6 +331,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
                 )
 
             # Add comments about how other files have errors
+            files.setdefault(only_filename, [])
             for filename in files:
                 if filename == only_filename:
                     continue
