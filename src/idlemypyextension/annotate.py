@@ -697,7 +697,7 @@ class Parser:
             self.fail("Ran out of tokens")
         return self.tokens[self.i]
 
-    def next(self) -> Token:  # noqa: A003
+    def next(self) -> Token:
         """Get next token."""
         token = self.peek()
         self.i += 1
