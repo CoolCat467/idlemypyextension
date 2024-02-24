@@ -32,7 +32,6 @@ import sys
 import traceback
 from functools import partial, wraps
 from idlelib.config import idleConf
-from tkinter import Event
 from typing import TYPE_CHECKING, Any, ClassVar, Final
 
 from idlemypyextension import annotate, client, tktrio, utils
@@ -40,6 +39,7 @@ from idlemypyextension import annotate, client, tktrio, utils
 if TYPE_CHECKING:
     from collections.abc import Callable
     from idlelib.pyshell import PyShellEditorWindow
+    from tkinter import Event
 
 DAEMON_TIMEOUT_MIN: Final = 5
 ACTION_TIMEOUT_MIN: Final = 5
@@ -369,6 +369,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         - Number of lines attempted to add
         - List of line numbers added that were not already there
         otherwise None because no content.
+
         """
         if not data:
             return 0, []
@@ -393,6 +394,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         - Number of lines attempted to add
         - List of line numbers added that were not already there
         otherwise None because no content.
+
         """
         return self.add_extra_data(
             file,

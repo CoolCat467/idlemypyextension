@@ -53,6 +53,7 @@ def does_path_interfere(
 
     This is a recursive function that mutates ignorepaths in each iteration.
     It is advised against passing the ignorepaths argument.
+
     """
     # Setup ignorepaths set when user calls this
     if ignorepaths is None:

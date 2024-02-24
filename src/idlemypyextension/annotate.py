@@ -101,7 +101,6 @@ class Separator(Operator):
 
 
 class EndSeparator(Separator):
-
     """End separator that does not need extra space."""
 
 
