@@ -29,6 +29,7 @@ from contextlib import contextmanager
 from idlelib import search, searchengine
 from idlelib.config import idleConf
 from os.path import abspath
+from tkinter import Text, Tk, messagebox
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 if TYPE_CHECKING:
@@ -38,7 +39,6 @@ if TYPE_CHECKING:
     from idlelib.iomenu import IOBinding
     from idlelib.pyshell import PyShellEditorWindow, PyShellFileList
     from idlelib.undo import UndoDelegator
-    from tkinter import Text, Tk
 
 
 def get_required_config(
@@ -181,6 +181,18 @@ def ensure_values_exist_in_section(
             idleConf.SetOption("extensions", section, key, default)
             need_save = True
     return need_save
+
+
+def ask_save_dialog(parent: Text) -> bool:
+    """Ask to save dialog stolen from idlelib.runscript.ScriptBinding."""
+    msg = "Source Must Be Saved\n" + 5 * " " + "OK to Save?"
+    confirm: bool = messagebox.askokcancel(
+        title="Save Before Run or Check",
+        message=msg,
+        default=messagebox.OK,
+        parent=parent,
+    )
+    return confirm
 
 
 def get_search_engine_params(

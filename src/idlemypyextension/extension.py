@@ -32,7 +32,7 @@ import sys
 import traceback
 from functools import partial, wraps
 from idlelib.config import idleConf
-from tkinter import Event, messagebox
+from tkinter import Event
 from typing import TYPE_CHECKING, Any, ClassVar, Final
 
 from idlemypyextension import annotate, client, tktrio, utils
@@ -401,17 +401,6 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             prefix="Error running mypy: ",
         )
 
-    def ask_save_dialog(self) -> bool:
-        """Ask to save dialog stolen from idlelib.runscript.ScriptBinding."""
-        msg = "Source Must Be Saved\n" + 5 * " " + "OK to Save?"
-        confirm: bool = messagebox.askokcancel(
-            title="Save Before Run or Check",
-            message=msg,
-            default=messagebox.OK,
-            parent=self.text,
-        )
-        return confirm
-
     async def ensure_daemon_running(self) -> bool:
         """Make sure daemon is running. Return False if cannot continue."""
         if not client.is_running(self.status_file):
@@ -644,7 +633,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         # Make sure file is saved.
         if not self.files.get_saved():
-            if not self.ask_save_dialog():
+            if not utils.ask_save_dialog(self.text):
                 # If not ok to save, do not run. Would break file.
                 self.text.bell()
                 return "break", file
@@ -745,6 +734,11 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
     def remove_type_comments_event(self, _event: Event[Any]) -> str:
         """Remove selected extension comments."""
         self.remove_selected_extension_comments()
+        return "break"
+
+    def remove_all_type_comments(self, _event: Event[Any]) -> str:
+        """Remove all extension comments."""
+        self.remove_all_extension_comments()
         return "break"
 
     def find_next_type_comment_event(self, _event: Event[Any]) -> str:
