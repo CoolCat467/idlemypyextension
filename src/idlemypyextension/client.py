@@ -173,7 +173,7 @@ def _read_request_response_json(request_response: str | bytes) -> Response:
 async def _request_win32(
     name: str,
     request_arguments: str,
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: TRIO109
 ) -> Response:
     """Request from daemon on windows."""
 
@@ -211,7 +211,7 @@ async def _request_win32(
 async def _request_linux(
     filename: str,
     request_arguments: str,
-    timeout: float | None = None,
+    timeout: float | None = None,  # noqa: TRIO109
 ) -> Response:
     def find_frame_in_buffer(
         buffer: bytearray,
@@ -271,7 +271,7 @@ async def request(
     status_file: str,
     command: str,
     *,
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: TRIO109
     **kwds: object,
 ) -> Response:
     """Send a request to the daemon.
@@ -315,7 +315,10 @@ async def stop(status_file: str) -> Response:
     return await request(status_file, "stop", timeout=5)
 
 
-async def _wait_for_server(status_file: str, timeout: float = 5.0) -> bool:
+async def _wait_for_server(
+    status_file: str,
+    timeout: float = 5.0,  # noqa: TRIO109
+) -> bool:
     """Wait until the server is up. Return False if timed out."""
     try:
         with trio.fail_after(timeout):
@@ -414,7 +417,7 @@ async def start(
 async def status(
     status_file: str,
     *,
-    timeout: int = 5,
+    timeout: int = 5,  # noqa: TRIO109
     fswatcher_dump_file: str | None = None,
 ) -> Response:
     """Ask daemon to return status."""
@@ -430,7 +433,7 @@ async def run(
     status_file: str,
     *,
     flags: list[str],
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: TRIO109
     daemon_timeout: int = 0,
     log_file: str | None = None,
     export_types: bool = False,
@@ -492,7 +495,7 @@ async def check(
     status_file: str,
     files: Sequence[str],
     *,
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: TRIO109
     export_types: bool = False,
 ) -> Response:
     """Ask the daemon to check a list of files."""
@@ -509,7 +512,7 @@ async def recheck(
     status_file: str,
     export_types: bool,
     *,
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: TRIO109
     remove: list[str] | None = None,
     update: list[str] | None = None,
 ) -> Response:
@@ -548,7 +551,7 @@ async def inspect(
     location: str,  # line:col
     show: str = "type",  # type, attrs, definition
     *,
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: TRIO109
     verbosity: int = 0,
     limit: int = 0,
     include_span: bool = False,
@@ -579,7 +582,7 @@ async def suggest(
     function: str,
     do_json: bool,
     *,
-    timeout: int | None = None,
+    timeout: int | None = None,  # noqa: TRIO109
     callsites: bool = False,
     no_errors: bool = False,
     no_any: bool = False,
@@ -603,7 +606,11 @@ async def suggest(
     )
 
 
-async def hang(status_file: str, *, timeout: int = 1) -> Response:
+async def hang(
+    status_file: str,
+    *,
+    timeout: int = 1,  # noqa: TRIO109
+) -> Response:
     """Hang for 100 seconds, as a debug hack."""
     if not isinstance(timeout, int):
         raise ValueError("Timeout must be an integer!")
