@@ -29,7 +29,7 @@ from contextlib import contextmanager
 from idlelib import search, searchengine
 from idlelib.config import idleConf
 from os.path import abspath
-from tkinter import Text, Tk, messagebox
+from tkinter import TclError, Text, Tk, messagebox
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 if TYPE_CHECKING:
@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 def get_required_config(
     values: dict[str, str],
     bind_defaults: dict[str, str],
+    extension_title: str,
 ) -> str:
     """Get required configuration file data."""
     config = ""
@@ -52,7 +53,7 @@ def get_required_config(
         f"{key} = {default}" for key, default in values.items()
     )
     if settings:
-        config += f"\n[{__title__}]\n{settings}"
+        config += f"\n[{extension_title}]\n{settings}"
         if bind_defaults:
             config += "\n"
     # Get key bindings data
@@ -60,7 +61,7 @@ def get_required_config(
         f"{event} = {key}" for event, key in bind_defaults.items()
     )
     if settings:
-        config += f"\n[{__title__}_cfgBindings]\n{settings}"
+        config += f"\n[{extension_title}_cfgBindings]\n{settings}"
     return config
 
 
@@ -106,6 +107,7 @@ def check_installed(
     required_config = get_required_config(
         getattr(cls, "values", {}),
         getattr(cls, "bind_defaults", {}),
+        extension,
     )
 
     # If this extension not in there,
@@ -136,9 +138,79 @@ def get_line_selection(line: int) -> tuple[str, str]:
 
 # Stolen from idlelib.searchengine
 def get_line_col(index: str) -> tuple[int, int]:
-    """Return (line, col) tuple of integers from 'line.col' string."""
+    """Return (line, col) tuple of integers from {line}.{col} string."""
     line, col = map(int, index.split(".", 1))  # Fails on invalid index
     return line, col
+
+
+# Stolen from idlelib.searchengine
+def get_selected_text_indexes(text: Text) -> tuple[str, str]:
+    """Return tuple of {line}.{col} indexes from selection or insert mark."""
+    try:
+        first = text.index("sel.first")
+    except TclError:
+        first = None
+    try:
+        last = text.index("sel.last")
+    except TclError:
+        last = None
+    first = first or text.index("insert")
+    last = last or first
+    return first, last
+
+
+def hide_hit(text: Text) -> None:
+    """Remove `hit` tag from entire file."""
+    text.tag_remove("hit", "1.0", "end")
+    # text.update_idletasks()
+
+
+def set_insert_and_move(text: Text, index: str) -> None:
+    """Bring area into view.
+
+    Moves `insert` mark and moves to insert mark.
+    """
+    text.mark_set("insert", index)
+    text.see("insert")
+
+    # Force update
+    text.update_idletasks()
+
+
+def higlight_region(text: Text, tag: str, first: str, last: str) -> None:
+    """Add a given tag to the region of text between first and last indices."""
+    if first == last:
+        text.tag_add(tag, first)
+    else:
+        text.tag_add(tag, first, last)
+
+
+def show_hit(text: Text, first: str, last: str) -> None:
+    """Highlight text between first and last indices.
+
+    Indexes are formatted as `{line}.{col}` strings.
+
+    Text is highlighted via the 'hit' tag and the marked
+    section is brought into view.
+
+    Does not clear previously set hit tags implicitly.
+
+    Note that because of how IDLE works, selection tag ("sel")
+    will override "hit" tag, so this function removes selection
+    tags from the entire file. If you need this information,
+    please use `get_selected_text_indexes` or something equivalent
+    beforehand.
+    """
+    text.tag_remove("sel", "1.0", "end")
+    higlight_region(text, "hit", first, last)
+
+    set_insert_and_move(text, first)
+
+
+def get_whole_line(index: str, offset: int = 0) -> str:
+    """Return index line plus offset at column zero."""
+    line = get_line_col(index)[0]
+    return f"{line + offset}.0"
 
 
 def get_line_indent(text: str, char: str = " ") -> int:
@@ -373,8 +445,20 @@ class BaseExtension:
             text_win=text_win,
         )
 
-    def add_comment(self, comment: Comment, max_exist_up: int = 0) -> bool:
-        """Return True if added new comment, False if already exists."""
+    def add_comment(
+        self,
+        comment: Comment,
+        max_exist_up: int = 0,
+    ) -> bool:
+        """Return True if added new comment, False if already exists.
+
+        Arguments:
+        ---------
+            max_exist_up: Max distance upwards to look for comment to already exist.
+
+        Does not use an undo block, please use one yourself.
+
+        """
         # Get line and message from output
         file = comment.file
         line = comment.line
@@ -412,6 +496,9 @@ class BaseExtension:
 
     def get_pointers(self, comments: list[Comment]) -> Comment | None:
         """Return comment pointing to multiple comments all on the same line.
+
+        If none of the comment pointers are going to be visible
+        with the comment prefix, returns None.
 
         Messages must all be on the same line and be in the same file
         """
@@ -455,7 +542,12 @@ class BaseExtension:
         self,
         comments: Sequence[Comment],
     ) -> dict[str, list[int]]:
-        """Add comments to file(s). Return list of lines were a comment was added."""
+        """Add comments to file(s). Ignores comments that already exist.
+
+        Return dict of per file a list of lines were a comment was added.
+
+        Changes are wrapped in an undo block.
+        """
         file_comments: dict[str, list[int]] = {}
 
         with undo_block(self.undo):
@@ -472,7 +564,12 @@ class BaseExtension:
         start_line: int,
         lines: Sequence[str],
     ) -> list[int]:
-        """Add lines to file, in order as they appear top to bottom."""
+        """Add lines to file, in order as they appear top to bottom.
+
+        Returns list of lines were a comment was added.
+
+        Changes are wrapped in an undo block.
+        """
         file_comments = self.add_comments(
             [
                 Comment(
@@ -486,7 +583,10 @@ class BaseExtension:
         return file_comments[file]
 
     def remove_selected_extension_comments(self) -> bool:
-        """Remove selected extension comments. Return if removed any comments."""
+        """Remove selected extension comments. Return if removed any comments.
+
+        Changes are wrapped in an undo block.
+        """
         # Get selected region lines
         head, _tail, chars, lines = self.formatter.get_region()
         region_start, _col = get_line_col(head)
@@ -508,7 +608,10 @@ class BaseExtension:
         return edited
 
     def remove_all_extension_comments(self) -> str:
-        """Remove all extension comments."""
+        """Remove all extension comments.
+
+        Changes are wrapped in an undo block.
+        """
         eof_idx = self.text.index("end")
         chars = self.text.get("0.0", eof_idx)
 
@@ -553,8 +656,7 @@ class BaseExtension:
                 },
             )
 
-            with undo_block(self.undo):
-                # Find current pattern
-                found = search.find_again(self.text)
-                assert isinstance(found, bool)
-                return found
+            # Find current pattern
+            found = search.find_again(self.text)
+            assert isinstance(found, bool)
+            return found
