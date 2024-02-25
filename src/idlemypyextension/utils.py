@@ -131,9 +131,9 @@ def check_installed(
     return False
 
 
-def get_line_selection(line: int) -> tuple[str, str]:
-    """Get selection strings for given line."""
-    return f"{line}.0", f"{line+1}.0"
+def get_line_selection(line: int, length: int = 1) -> tuple[str, str]:
+    """Get selection strings for given line(s)."""
+    return f"{line}.0", f"{line+length}.0"
 
 
 # Stolen from idlelib.searchengine
@@ -421,7 +421,11 @@ class BaseExtension:
                 )
                 setattr(cls, key, value)
 
-    def get_line(self, line: int, text_win: Text | None = None) -> str:
+    def get_line(
+        self,
+        line: int,
+        text_win: Text | None = None,
+    ) -> str:
         """Get the characters from the given line in currently open file."""
         if text_win is None:
             text_win = self.text

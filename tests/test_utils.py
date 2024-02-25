@@ -30,6 +30,11 @@ reboot = Ctrl+Alt+Del"""
     )
 
 
+def test_get_line_selection() -> None:
+    assert utils.get_line_selection(3) == ("3.0", "4.0")
+    assert utils.get_line_selection(3, 3) == ("3.0", "6.0")
+
+
 @pytest.mark.parametrize(
     ("line", "expected"),
     [
@@ -42,10 +47,6 @@ reboot = Ctrl+Alt+Del"""
 )
 def test_get_line_col_success(line: str, expected: tuple[int, int]) -> None:
     assert utils.get_line_col(line) == expected
-
-
-def test_get_line_selection() -> None:
-    assert utils.get_line_selection(3) == ("3.0", "4.0")
 
 
 @pytest.mark.parametrize(
@@ -63,6 +64,14 @@ def test_get_line_col_failure(line: str) -> None:
         match=r"(not enough values to unpack)|(invalid literal for int\(\) with base 10:)",
     ):
         utils.get_line_col(line)
+
+
+@pytest.mark.parametrize(
+    ("index", "offset", "expect"),
+    [("3.14", 0, "3.0"), ("3.14", 1, "4.0"), ("2981.23", -1, "2980.0")],
+)
+def test_get_whole_line(index: str, offset: int, expect: str) -> None:
+    assert utils.get_whole_line(index, offset) == expect
 
 
 @pytest.mark.parametrize(

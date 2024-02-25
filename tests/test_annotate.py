@@ -203,6 +203,27 @@ def test_invalid_tokenize() -> None:
                 annotate.End(),
             ],
         ),
+        (
+            """def potato(
+    get_line = lambda lno: GLOBAL_LINES[lno]
+):""",
+            [
+                annotate.Definition("def"),
+                annotate.FunctionName("potato"),
+                annotate.EndSeparator("("),
+                annotate.EndSeparator(text="\n"),
+                annotate.EndSeparator(text="    "),
+                annotate.ArgumentName("get_line"),
+                annotate.DefaultDef("="),
+                annotate.ArgumentDefault(text="lambda"),
+                annotate.LambdaBody("lno: GLOBAL_LINES[lno]"),
+                annotate.EndSeparator(text="\n"),
+                annotate.EndSeparator(text=""),
+                annotate.EndSeparator(")"),
+                annotate.EndDefinition(":"),
+                annotate.End(),
+            ],
+        ),
     ],
 )
 def test_tokenize_definition(text: str, tokens: list[annotate.Token]) -> None:
@@ -505,6 +526,17 @@ def test_invalid_tokenize_definition() -> None:
         ),
         (
             """def potato(
+    get_line = lambda lno, default: (default, GLOBAL), lines = 0,
+):""",
+            ["Callable[[int, str], str]", "int"],
+            "bool",
+            """def potato(
+    get_line: Callable[[int, str], str] = lambda lno, default: (default, GLOBAL), lines: int = 0,
+) -> bool:""",
+            None,
+        ),
+        (
+            """def potato(
     get_line: Callable[[int, str], str] = lambda lno, default: (default),
     lines: int = 0,
 ) -> bool:""",
@@ -667,6 +699,17 @@ def test_read_lambda_failure() -> None:
 
 def test_read_lambda_over_read_detection() -> None:
     text = """ line_no, default: f'{line_no}: {default}') -> None:"""
+
+    with StringIO(text) as file:
+        content, over_read_error = annotate.read_lambda(
+            generate_tokens(file.readline),
+        )
+        assert content == " line_no, default: f'{line_no}: {default}'"
+        assert over_read_error
+
+
+def test_read_lambda_over_read_parens() -> None:
+    text = """ line_no, default: f'{line_no}: {default}'):"""
 
     with StringIO(text) as file:
         content, over_read_error = annotate.read_lambda(

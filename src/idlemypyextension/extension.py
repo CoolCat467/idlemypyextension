@@ -51,6 +51,64 @@ def debug(message: object) -> None:
     print(f"\n[{__title__}] DEBUG: {message}")
 
 
+def parse_comments(
+    mypy_output: str,
+    default_file: str,
+    default_line: int,
+) -> dict[str, list[utils.Comment]]:
+    """Parse mypy output, return mapping of filenames to lists of comments."""
+    error_type = re.compile(r"  \[[a-z\-]+\]\s*$")
+
+    files: dict[str, list[utils.Comment]] = {}
+    for output_line in mypy_output.splitlines():
+        if not output_line.strip():
+            continue
+        filename = default_file
+        line = default_line
+        line_end = default_line
+        col = 0
+        col_end = 0
+        msg_type = "unrecognized"
+
+        if output_line.count(": ") < 2:
+            text = output_line
+        else:
+            where, msg_type, text = output_line.split(": ", 2)
+
+            position = where.split(":")
+
+            filename = position[0]
+            if len(position) > 1:
+                line = int(position[1])
+                line_end = line
+            if len(position) > 2:
+                col = int(position[2])
+                col_end = col
+            if len(position) > 4:
+                line_end = int(position[3])
+                if line_end == line:
+                    col_end = int(position[4])
+                else:
+                    line_end = line
+        comment_type = error_type.search(text)
+        if comment_type is not None:
+            text = text[: comment_type.start()]
+            msg_type = f"{comment_type.group(0)[3:-1]} {msg_type}"
+
+        comment = utils.Comment(
+            file=filename,
+            line=line,
+            contents=f"{msg_type}: {text}",
+            column=col,
+            line_end=line_end,
+            column_end=col_end,
+        )
+
+        files.setdefault(filename, [])
+        files[filename].append(comment)
+    return files
+
+
 # Important weird: If event handler function returns 'break',
 # then it prevents other bindings of same event type from running.
 # If returns None, normal and others are also run.
@@ -211,64 +269,6 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         """Should only add type comments for currently open file?."""
         return True
 
-    @staticmethod
-    def parse_comments(
-        mypy_output: str,
-        default_file: str,
-        default_line: int,
-    ) -> dict[str, list[utils.Comment]]:
-        """Parse mypy output, return mapping of filenames to lists of comments."""
-        error_type = re.compile(r"  \[[a-z\-]+\]\s*$")
-
-        files: dict[str, list[utils.Comment]] = {}
-        for output_line in mypy_output.splitlines():
-            if not output_line.strip():
-                continue
-            filename = default_file
-            line = default_line
-            line_end = default_line
-            col = 0
-            col_end = 0
-            msg_type = "unrecognized"
-
-            if output_line.count(": ") < 2:
-                text = output_line
-            else:
-                where, msg_type, text = output_line.split(": ", 2)
-
-                position = where.split(":")
-
-                filename = position[0]
-                if len(position) > 1:
-                    line = int(position[1])
-                    line_end = line
-                if len(position) > 2:
-                    col = int(position[2])
-                    col_end = col
-                if len(position) > 4:
-                    line_end = int(position[3])
-                    if line_end == line:
-                        col_end = int(position[4])
-                    else:
-                        line_end = line
-            comment_type = error_type.search(text)
-            if comment_type is not None:
-                text = text[: comment_type.start()]
-                msg_type = f"{comment_type.group(0)[3:-1]} {msg_type}"
-
-            comment = utils.Comment(
-                file=filename,
-                line=line,
-                contents=f"{msg_type}: {text}",
-                column=col,
-                line_end=line_end,
-                column_end=col_end,
-            )
-
-            files.setdefault(filename, [])
-            files[filename].append(comment)
-        return files
-
     def add_type_comments_for_file(
         self,
         target_filename: str,
@@ -308,7 +308,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         """
         assert self.files.filename is not None
 
-        files = self.parse_comments(
+        files = parse_comments(
             mypy_output,
             os.path.abspath(self.files.filename),
             start_line,
@@ -368,7 +368,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         Tuple of:
         - Number of lines attempted to add
         - List of line numbers added that were not already there
-        otherwise None because no content.
+        otherwise empty because no content.
 
         """
         if not data:
