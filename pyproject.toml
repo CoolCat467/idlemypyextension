@@ -32,7 +32,7 @@ classifiers = [
 ]
 keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
-    "mypy~=1.9.0",
+    "mypy>=1.9,<1.11",
     "trio~=0.25.0",
     "mttkinter~=0.6.1",
 ]
