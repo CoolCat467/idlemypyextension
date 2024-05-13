@@ -753,5 +753,19 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         return "break"
 
-    # def close(self) -> None:
-    #    """Called when any idle editor window closes"""
+    def unregister_async_events(self) -> None:
+        """Unregister asynchronous event handlers."""
+        for attr_name in dir(self):
+            if attr_name.startswith("_"):
+                continue
+            if attr_name.endswith("_event_async"):
+                bind_name = "-".join(attr_name.split("_")[:-2]).lower()
+                self.text.event_delete(f"<<{bind_name}>>")
+
+    def close(self) -> None:
+        """Extension cleanup before IDLE window closes."""
+        # Wrapped in try except so failure doesn't cause zombie windows.
+        try:
+            self.unregister_async_events()
+        except Exception as exc:
+            traceback.print_exception(exc)
