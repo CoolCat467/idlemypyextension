@@ -918,6 +918,7 @@ def get_annotation(
                 type_text += " = "
                 if isinstance(parser.peek(), EndSeparator):
                     start_collection = parser.next().text
+                    assert start_collection is not None
                     type_text += start_collection
                     type_text += ", ".join(
                         map(
