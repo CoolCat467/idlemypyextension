@@ -531,6 +531,8 @@ def get_typevalue_repr(
         return "[]"
     if name == "Union":
         return " | ".join(args)
+    if name == "__hacks_DictItem":
+        return ": ".join(args)
     values = ", ".join(args)
     return f"{name}[{values}]"
 
@@ -596,9 +598,46 @@ class Parser:
             string = self.lookup()
             if string == ",":
                 self.expect(",")
-            elif string not in {")", "]"}:
-                self.fail(f"Expected ) or ], got {string!r}")
+                continue
+            self.expect_option((")", "]"))
+            self.back()
         return types
+
+    def parse_type_dict_or_set(self) -> list[TypeValue]:
+        """Parse dict or set type list."""
+        types = []
+        # 0 -> Unknown
+        # 1 -> dict
+        # 2 -> set
+        which = 0
+        while self.lookup() != "}":
+            typ = self.parse_type()
+            if which == 0:
+                which = 1 if self.lookup() == ":" else 2
+            if which == 1:  # dict
+                self.expect(":")
+                types.append(
+                    TypeValue("__hacks_DictItem", (typ, self.parse_type())),
+                )
+            if which == 2:  # set
+                types.append(typ)
+            if self.lookup() == ",":
+                self.expect(",")
+                continue
+            self.expect("}")
+            self.back()
+        return types
+
+    def parse_type_collection(self, start_collection: str) -> list[TypeValue]:
+        """Parse default argument type list."""
+        if start_collection in ("(", "["):
+            return self.parse_type_list()
+        if start_collection == "{":
+            return self.parse_type_dict_or_set()
+        # Fail is a NoReturn, making RET503 irrelevant
+        self.fail(  # pragma: nocover  # noqa: RET503
+            "Unhandled collection start: {start_collection!r}",
+        )
 
     def parse_union_list(self) -> list[TypeValue]:
         """Parse | separated union list."""
@@ -701,6 +740,15 @@ class Parser:
         token = self.peek()
         self.i += 1
         return token
+
+    def expect_option(self, options: Collection[str]) -> str:
+        """Expect next token text to be one of options. Return matching text."""
+        got = self.next().text
+        if got not in options:
+            expected = list_or(tuple(map(repr, options)))
+            self.fail(f"Expected {expected}, got {got!r}")
+        assert got is not None
+        return got
 
     def expect(self, text: str) -> None:
         """Expect next token text to be text."""
@@ -869,8 +917,14 @@ def get_annotation(
                 parser.expect("=")
                 type_text += " = "
                 if isinstance(parser.peek(), EndSeparator):
-                    type_text += f"{parser.next().text}"
-                    type_text += ", ".join(map(str, parser.parse_type_list()))
+                    start_collection = parser.next().text
+                    type_text += start_collection
+                    type_text += ", ".join(
+                        map(
+                            str,
+                            parser.parse_type_collection(start_collection),
+                        ),
+                    )
                     type_text += f"{parser.next().text}"
                 else:
                     type_text += str(parser.parse_type())

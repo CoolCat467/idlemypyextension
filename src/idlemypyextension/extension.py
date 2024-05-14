@@ -442,17 +442,23 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         flags += [file]
         # debug(f"check {flags = }")
         command = " ".join(
-            [
+            x
+            for x in [
                 "dmypy",
                 f'--status-file="{self.status_file}"',
                 "run",
-                f"--timeout={self.daemon_timeout}",
+                (
+                    f"--timeout={self.action_timeout}"
+                    if self.action_timeout
+                    else ""
+                ),
                 f'--log-file="{self.log_file}"',
                 "--export-types",
                 f'"{file}"',
                 "--",
                 *self.flags,
-            ],
+            ]
+            if x
         )
         debug(f"{command = }")
         return await client.run(

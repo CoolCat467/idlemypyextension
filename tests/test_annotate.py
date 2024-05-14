@@ -594,6 +594,24 @@ def test_invalid_tokenize_definition() -> None:
             "def valid_moves(turn: bool, lines: Sequence[Sequence[int]], boxes: Sequence[Sequence[int]]) -> Generator[Action, None, None]:",
             "dots and boxes",
         ),
+        (
+            """def bad_default_arg(name_map = {"jerald": "cat", "luigi": "person"}):""",
+            [
+                "dict[str, str]",
+            ],
+            "str",
+            """def bad_default_arg(name_map: dict[str, str] = {"jerald": "cat", "luigi": "person"}) -> str:""",
+            None,
+        ),
+        (
+            """def bad_default_arg(name_map = {"jerald", "cat", "bob"}):""",
+            [
+                "set[str]",
+            ],
+            "str",
+            """def bad_default_arg(name_map: set[str] = {"jerald", "cat", "bob"}) -> str:""",
+            None,
+        ),
     ],
 )
 def test_get_annotation(
@@ -762,7 +780,7 @@ def test_parse_type_list_no_close_failure() -> None:
     )
     with pytest.raises(
         annotate.ParseError,
-        match="Expected \\) or \\], got 'notend'",
+        match="Expected '\\)' or '\\]', got 'notend'",
     ):
         parser.parse_type_list()
 
