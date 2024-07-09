@@ -34,7 +34,6 @@ keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
     "mypy~=1.10.1",
     "trio~=0.26.0",
-    "mttkinter~=0.6.1",
 ]
 
 [tool.setuptools.dynamic]

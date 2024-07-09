@@ -34,11 +34,11 @@ from tkinter import messagebox
 from traceback import format_exception, print_exception
 from typing import TYPE_CHECKING, Any, TypeGuard
 
+from idlemypyextension import mttkinter
 from idlemypyextension.moduleguard import guard_imports
 
-with guard_imports({"trio", "exceptiongroup", "mttkinter"}):
+with guard_imports({"trio", "exceptiongroup"}):
     import trio
-    from mttkinter import mtTkinter
 
     if sys.version_info < (3, 11):
         from exceptiongroup import ExceptionGroup
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 
 
 # Use mttkinter somewhere so pycln doesn't eat it
-assert mtTkinter.TRUE
+assert mttkinter.TRUE
 
 
 def debug(message: object) -> None:
@@ -195,7 +195,11 @@ class TkTrioRunner:
 
         root.__trio__ = weakref.ref(self)  # type: ignore[attr-defined]
 
-    def schedule_task(self, function: Callable[..., Any], *args: Any) -> None:
+    def schedule_task_threadsafe(
+        self,
+        function: Callable[..., Any],
+        *args: Any,
+    ) -> None:
         """Schedule task in Tkinter's event loop."""
         try:
             self.root.after_idle(function, *args)
@@ -207,6 +211,18 @@ class TkTrioRunner:
 
             self.cancel_current_task()
 
+    ##    def schedule_task_not_threadsafe(self, function: Callable[..., Any], *args: Any) -> None:
+    ##        """Schedule task in Tkinter's event loop."""
+    ##        try:
+    ##            self.root.after_idle(function, *args)
+    ##        except RuntimeError as exc:
+    ##            debug(f"Exception scheduling task {function = }")
+    ##            # probably "main thread is not in main loop" error
+    ##            # mtTkinter is supposed to fix this sort of issue
+    ##            print_exception(exc)
+    ##
+    ##            self.cancel_current_task()
+
     def cancel_current_task(self) -> None:
         """Cancel current task if one is running."""
         if self.run_status == RunStatus.NO_TASK:
@@ -215,7 +231,7 @@ class TkTrioRunner:
 
         if self.run_status == RunStatus.TRIO_STARTING:
             # Reschedule close for later, in process of starting.
-            self.schedule_task(self.cancel_current_task)
+            self.schedule_task_threadsafe(self.cancel_current_task)
             return
 
         if self.run_status == RunStatus.TRIO_RUNNING_CANCELING:
@@ -287,7 +303,7 @@ class TkTrioRunner:
         trio.lowlevel.start_guest_run(
             run_nursery,
             done_callback=done_callback,
-            run_sync_soon_threadsafe=self.schedule_task,
+            run_sync_soon_threadsafe=self.schedule_task_threadsafe,
             host_uses_signal_set_wakeup_fd=False,
             restrict_keyboard_interrupt_to_checkpoints=True,
             strict_exception_groups=True,
@@ -317,7 +333,7 @@ class TkTrioRunner:
                 self.cancel_current_task()
             if self.run_status != RunStatus.NO_TASK:
                 # Rerun this function again in the future until no task running.
-                self.schedule_task(shutdown_then_call)
+                self.schedule_task_threadsafe(shutdown_then_call)
                 return None
             # No more tasks
             # Make sure to uninstall override or IDLE gets mad
@@ -405,12 +421,12 @@ class TkTrioRunner:
             ### Task run is in the process of stopping
             ### self.no_start_trio_is_stopping()
             # Reschedule starting task
-            self.schedule_task(self.__call__, function)
+            self.schedule_task_threadsafe(self.__call__, function)
             return None
 
         if self.run_status == RunStatus.TRIO_STARTING:
             # Reschedule starting task
-            self.schedule_task(self.__call__, function)
+            self.schedule_task_threadsafe(self.__call__, function)
             return None
 
         # If there is a task running
