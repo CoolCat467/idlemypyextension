@@ -53,7 +53,11 @@ from __future__ import annotations
 import queue
 import threading
 from tkinter import TRUE as TRUE, Tk
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from types import TracebackType
 
 # Use TRUE somewhere so pycln doesn't eat it
 assert TRUE
@@ -88,7 +92,24 @@ class _Tk:
         self._tk = tk
 
         # Create the incoming event queue
-        self._event_queue = queue.Queue(1)
+        self._event_queue: queue.Queue[
+            tuple[
+                Any,
+                tuple[Any, ...],
+                dict[str, Any],
+                queue.Queue[
+                    tuple[
+                        bool,
+                        tuple[
+                            type[BaseException],
+                            BaseException,
+                            TracebackType,
+                        ]
+                        | Any,
+                    ]
+                ],
+            ]
+        ] = queue.Queue(1)
 
         # Identify the thread from which this object is being created
         # so we can tell later whether an event is coming from another
@@ -101,17 +122,20 @@ class _Tk:
         # Destroying flag to be set by the .destroy() hook
         self._destroying = False
 
-    def __getattr__(self, name: str) -> _TkAttr:
+    def __getattr__(self, name: str) -> _TkAttr | Any:
         """Diverts attribute accesses to a wrapper around the underlying tk object."""
         ##        if name in {"createcommand", "call"}:
-        return _TkAttr(self, getattr(self._tk, name))
+        attr = getattr(self._tk, name)
+        if callable(attr):
+            return _TkAttr(self, getattr(self._tk, name))
+        return attr
         ##        return getattr(self._tk, name)
 
 
 class _TkAttr:
     """Thread-safe callable attribute wrapper."""
 
-    def __init__(self, tk: _Tk, attr: Any) -> None:
+    def __init__(self, tk: _Tk, attr: Callable[..., Any]) -> None:
         self._tk = tk
         self._attr = attr
 
@@ -141,7 +165,13 @@ class _TkAttr:
         if not self._tk._destroying:
             # We're in a different thread than the creation thread;
             # enqueue the event, and then wait for the response.
-            response_queue = queue.Queue(1)
+            response_queue: queue.Queue[
+                tuple[
+                    bool,
+                    tuple[type[BaseException], BaseException, TracebackType]
+                    | Any,
+                ]
+            ] = queue.Queue(1)
             if self._tk._debug >= 1:
                 print(
                     "Marshalling event:",
@@ -181,11 +211,12 @@ def _tk__init__(self: Tk, *args: Any, **kwargs: Any) -> None:
     }
 
     # Call the original __init__ method, creating the internal tk member.
+    assert hasattr(self, "__original__init__mtTkinter")
     self.__original__init__mtTkinter(*args, **kwargs)
 
     # Replace the internal tk member with a wrapper that handles calls from
     # other threads.
-    self.tk = _Tk(self.tk, **new_kwargs)
+    self.tk = _Tk(self.tk, **new_kwargs)  # type: ignore[assignment,arg-type]
 
     # Set up the first event to check for out-of-thread events.
     self.after_idle(_check_events, self)
@@ -195,19 +226,21 @@ def _tk__init__(self: Tk, *args: Any, **kwargs: Any) -> None:
 def _tk_destroy(self: Tk) -> None:
     if hasattr(self.tk, "_destroying"):
         self.tk._destroying = True
-    self.__original__destroy()
+    if hasattr(self, "__original__destroy"):
+        self.__original__destroy()
 
 
-def _check_events(tk: _Tk) -> None:
+def _check_events(tk: Tk) -> None:
     """Check events in the queue on a given Tk instance."""
     used = False
+    tk_obj = cast(_Tk, tk.tk)
     try:
         # Process all enqueued events, then exit.
         while True:
             try:
                 # Get an event request from the queue.
                 method, args, kwargs, response_queue = (
-                    tk.tk._event_queue.get_nowait()
+                    tk_obj._event_queue.get_nowait()
                 )
             except queue.Empty:
                 # No more events to process.
@@ -216,7 +249,7 @@ def _check_events(tk: _Tk) -> None:
                 # Call the event with the given arguments, and then return
                 # the result back to the caller via the response queue.
                 used = True
-                if tk.tk._debug >= 2:
+                if tk_obj._debug >= 2:
                     print(
                         "Calling event from main thread:",
                         method.__name__,
@@ -241,14 +274,14 @@ def _check_events(tk: _Tk) -> None:
         if used:
             tk.after_idle(_check_events, tk)
         else:
-            tk.after(tk.tk._check_period, _check_events, tk)
+            tk.after(tk_obj._check_period, _check_events, tk)
 
 
 """Perform in-memory modification of Tkinter module"""
 # Replace Tk's original __init__ with the hook.
-Tk.__original__init__mtTkinter = Tk.__init__
-Tk.__init__ = _tk__init__
+Tk.__original__init__mtTkinter = Tk.__init__  # type: ignore[attr-defined]
+Tk.__init__ = _tk__init__  # type: ignore[ method-assign]
 
 # Replace Tk's original destroy with the hook.
-Tk.__original__destroy = Tk.destroy
-Tk.destroy = _tk_destroy
+Tk.__original__destroy = Tk.destroy  # type: ignore[attr-defined]
+Tk.destroy = _tk_destroy  # type: ignore[ method-assign]
