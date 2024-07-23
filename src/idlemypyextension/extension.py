@@ -293,6 +293,9 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         """
         assert self.files.filename is not None
 
+        if only_filename is not None:
+            only_filename = os.path.abspath(only_filename)
+
         files = parse_comments(
             mypy_output,
             os.path.abspath(self.files.filename),
