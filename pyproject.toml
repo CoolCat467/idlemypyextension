@@ -103,6 +103,7 @@ select = [
     "F",     # pyflakes
     "FA",    # flake8-future-annotations
     "FLY",   # flynt
+    "FURB",  # refurb
     "I",     # isort
     "N",     # pep8-naming
     "PIE",   # flake8-pie
