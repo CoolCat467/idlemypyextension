@@ -135,6 +135,15 @@ extend-ignore = [
     "D103",  # undocumented-public-function
     "D107",  # Missing docstring
 ]
+"stubs/*" = [
+    "A001",  # builtin-variable-shadowing
+    "A002",  # builtin-argument-shadowing
+    "N802",  # invalid-function-name (lowercase)
+    "N803",  # invalid-argument-name (lowercase)
+    "N815",  # mixed-case-variable-in-class-scope
+    "N816",  # mixed-case-variable-in-global-scope
+    "N818",  # error-suffix-on-exception-name
+]
 
 [tool.pytest.ini_options]
 addopts = "--cov-report term-missing --cov=idlemypyextension"
