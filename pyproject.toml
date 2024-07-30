@@ -102,6 +102,7 @@ select = [
     "EXE",   # flake8-executable
     "F",     # pyflakes
     "FA",    # flake8-future-annotations
+    "FLY",   # flynt
     "I",     # isort
     "N",     # pep8-naming
     "PIE",   # flake8-pie
