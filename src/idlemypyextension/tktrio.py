@@ -166,10 +166,9 @@ class TkTrioRunner:
         if not is_tk_wm_and_misc_subclass(root):
             raise ValueError("Must be subclass of both tk.Misc and tk.Wm")
         ref = getattr(root, "__trio__", None)
+
         if ref is not None:
-            obj = ref()
-            if isinstance(obj, cls):
-                return obj
+            return ref()
         return super().__new__(cls)
 
     def __init__(

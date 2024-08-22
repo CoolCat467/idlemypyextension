@@ -8,6 +8,7 @@ from tokenize import generate_tokens
 from typing import TYPE_CHECKING
 
 import pytest
+
 from idlemypyextension import annotate
 
 if TYPE_CHECKING:

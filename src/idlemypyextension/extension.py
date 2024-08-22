@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 # IDLE Mypy daemon integration extension
-# Copyright (C) 2023  CoolCat467
+# Copyright (C) 2023-2024  CoolCat467
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -34,7 +34,7 @@ from functools import partial, wraps
 from idlelib.config import idleConf
 from typing import TYPE_CHECKING, Any, ClassVar, Final
 
-from idlemypyextension import annotate, client, tktrio, utils
+from idlemypyextension import annotate, client, mttkinter, tktrio, utils
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -759,6 +759,8 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
     def close(self) -> None:
         """Extension cleanup before IDLE window closes."""
         # Wrapped in try except so failure doesn't cause zombie windows.
+        del self.triorun
+        mttkinter.restore()
         try:
             self.unregister_async_events()
         except Exception as exc:
