@@ -280,11 +280,11 @@ def _check_events(tk: Tk) -> None:
 def restore() -> None:
     """Restore original functions."""
     if hasattr(Tk, "__original__init__mtTkinter"):
-        Tk.__init__ = Tk.__original__init__mtTkinter
+        Tk.__init__ = Tk.__original__init__mtTkinter  # type: ignore[method-assign]
         del Tk.__original__init__mtTkinter
 
     if hasattr(Tk, "__original__destroy"):
-        Tk.destroy = Tk.__original__destroy
+        Tk.destroy = Tk.__original__destroy  # type: ignore[method-assign]
         del Tk.__original__destroy
 
 
@@ -292,9 +292,9 @@ def restore() -> None:
 # Replace Tk's original __init__ with the hook.
 if not hasattr(Tk, "__original__init__mtTkinter"):
     Tk.__original__init__mtTkinter = Tk.__init__  # type: ignore[attr-defined]
-    Tk.__init__ = _tk__init__  # type: ignore[ method-assign]
+    Tk.__init__ = _tk__init__  # type: ignore[method-assign]
 
 # Replace Tk's original destroy with the hook.
 if not hasattr(Tk, "__original__destroy"):
     Tk.__original__destroy = Tk.destroy  # type: ignore[attr-defined]
-    Tk.destroy = _tk_destroy  # type: ignore[ method-assign]
+    Tk.destroy = _tk_destroy  # type: ignore[method-assign]

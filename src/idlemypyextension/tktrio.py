@@ -25,6 +25,7 @@ __author__ = "CoolCat467"
 __license__ = "GNU General Public License Version 3"
 __version__ = "0.1.0"
 
+import contextlib
 import sys
 import tkinter as tk
 import weakref
@@ -168,7 +169,12 @@ class TkTrioRunner:
         ref = getattr(root, "__trio__", None)
 
         if ref is not None:
-            return ref()
+            instance = ref()
+            if instance is not None:
+                if TYPE_CHECKING:
+                    assert isinstance(instance, cls)
+                assert instance.__class__.__name__ == cls.__name__
+                return instance
         return super().__new__(cls)
 
     def __init__(
@@ -192,7 +198,8 @@ class TkTrioRunner:
         self.recieved_loop_close_request = False
         self.installed_proto_override = False
 
-        root.__trio__ = weakref.ref(self)  # type: ignore[attr-defined]
+        with contextlib.suppress(AttributeError):
+            root.__trio__ = weakref.ref(self)  # type: ignore[attr-defined]
 
     def schedule_task_threadsafe(
         self,
