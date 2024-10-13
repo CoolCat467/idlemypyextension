@@ -231,6 +231,26 @@ class EditorWindow:
         event: Event[Any] | None = ...,
     ) -> None: ...
 
+    Percolator = Percolator
+    ColorDelegator = ColorDelegator
+    color_config = color_config
+    UndoDelegator = UndoDelegator
+    IOBinding = IOBinding
+    encoding: str
+    mainmenu = mainmenu
+    MultiStatusBar = MultiStatusBar
+    AutoComplete = AutoComplete
+    AutoExpand = AutoExpand
+    Calltip = Calltip
+    CodeContext = CodeContext
+    LineNumbers = LineNumbers
+    FormatParagraph = FormatParagraph
+    FormatRegion = FormatRegion
+    Indents = Indents
+    Rstrip = Rstrip
+    ParenMatch = ParenMatch
+    ZoomHeight = ZoomHeight
+
 def index2line(index: str) -> int: ...
 def get_line_indent(line: str, tabwidth: int) -> tuple[int, int]: ...
 

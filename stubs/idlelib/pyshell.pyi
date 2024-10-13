@@ -161,8 +161,8 @@ class ModifiedInterpreter(InteractiveInterpreter):
 
 class PyShell(OutputWindow):
     shell_title: str
-    ColorDelegator: ModifiedColorDelegator
-    UndoDelegator: ModifiedUndoDelegator
+    ColorDelegator: ModifiedColorDelegator  # type: ignore[assignment]
+    UndoDelegator: ModifiedUndoDelegator  # type: ignore[assignment]
     menu_specs: list[tuple[str, str]]
     rmenu_specs: list[tuple[str, str]]  # type: ignore[assignment]
     allow_line_numbers: bool
