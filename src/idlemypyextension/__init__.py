@@ -34,6 +34,7 @@ def check_installed() -> bool:
     return utils.check_installed(__title__, __version__, idlemypyextension)
 
 
+utils.set_title(__title__)
 idlemypyextension.reload()
 
 

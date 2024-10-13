@@ -25,20 +25,39 @@ __author__ = "CoolCat467"
 __license__ = "GNU General Public License Version 3"
 
 import sys
+import time
+import traceback
 from contextlib import contextmanager
+from functools import wraps
 from idlelib import search, searchengine
 from idlelib.config import idleConf
 from os.path import abspath
+from pathlib import Path
 from tkinter import TclError, Text, Tk, messagebox
-from typing import TYPE_CHECKING, ClassVar, NamedTuple
+from typing import TYPE_CHECKING, ClassVar, NamedTuple, TypeVar
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Sequence
+    from collections.abc import Callable, Generator, Sequence
     from idlelib.editor import EditorWindow
     from idlelib.format import FormatRegion
     from idlelib.iomenu import IOBinding
     from idlelib.pyshell import PyShellEditorWindow, PyShellFileList
     from idlelib.undo import UndoDelegator
+
+    from typing_extensions import ParamSpec
+
+    PS = ParamSpec("PS")
+
+T = TypeVar("T")
+
+LOGS_PATH = Path(idleConf.userdir) / "logs"
+TITLE: str = __title__
+
+
+def set_title(title: str) -> None:
+    """Set program title."""
+    global TITLE
+    TITLE = title
 
 
 def get_required_config(
@@ -47,6 +66,8 @@ def get_required_config(
     extension_title: str,
 ) -> str:
     """Get required configuration file data."""
+    if __title__ == TITLE:
+        set_title(extension_title)
     config = ""
     # Get configuration defaults
     settings = "\n".join(
@@ -307,6 +328,28 @@ def undo_block(undo: UndoDelegator) -> Generator[None, None, None]:
         yield None
     finally:
         undo.undo_block_stop()
+
+
+def log_exceptions(function: Callable[PS, T]) -> Callable[PS, T]:
+    """Log any exceptions raised."""
+
+    @wraps(function)
+    def wrapper(*args: PS.args, **kwargs: PS.kwargs) -> T:
+        """Catch Exceptions, log them to log file, and re-raise."""
+        try:
+            return function(*args, **kwargs)
+        except Exception as exc:
+            if not LOGS_PATH.exists():
+                LOGS_PATH.mkdir(exist_ok=True)
+            log_file = LOGS_PATH / f"{TITLE}.log"
+            with log_file.open("a", encoding="utf-8") as fp:
+                format_time = time.strftime("[%Y-%m-%d %H:%M:%S] ")
+                exception_text = "".join(traceback.format_exception(exc))
+                for line in exception_text.splitlines(keepends=True):
+                    fp.write(f"{format_time}{line}")
+            raise
+
+    return wrapper
 
 
 class Comment(NamedTuple):

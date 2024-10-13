@@ -197,6 +197,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         async_function = getattr(self, name)
 
         @wraps(async_function)
+        @utils.log_exceptions
         def call_trio(event: Event[Any]) -> str:
             self.triorun(partial(async_function, event))
             return "break"
@@ -624,9 +625,6 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             return "break", None
         file: str = os.path.abspath(raw_filename)
 
-        # Remember where we started
-        self.editwin.getlineno()
-
         # Make sure file is saved.
         if not self.files.get_saved():
             if not utils.ask_save_dialog(self.text):
@@ -727,16 +725,19 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         self.type_check_add_response_comments(response, file)
         return "break"
 
+    @utils.log_exceptions
     def remove_type_comments_event(self, _event: Event[Any]) -> str:
         """Remove selected extension comments."""
         self.remove_selected_extension_comments()
         return "break"
 
+    @utils.log_exceptions
     def remove_all_type_comments(self, _event: Event[Any]) -> str:
         """Remove all extension comments."""
         self.remove_all_extension_comments()
         return "break"
 
+    @utils.log_exceptions
     def find_next_type_comment_event(self, _event: Event[Any]) -> str:
         """Find next extension comment by hacking the search dialog engine."""
         # Reload configuration
@@ -756,6 +757,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
                 bind_name = "-".join(attr_name.split("_")[:-2]).lower()
                 self.text.event_delete(f"<<{bind_name}>>")
 
+    @utils.log_exceptions
     def close(self) -> None:
         """Extension cleanup before IDLE window closes."""
         # Wrapped in try except so failure doesn't cause zombie windows.
