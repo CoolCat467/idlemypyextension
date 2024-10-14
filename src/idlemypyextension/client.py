@@ -50,6 +50,7 @@ from collections import ChainMap
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from idlemypyextension.moduleguard import guard_imports
+from idlemypyextension.utils import extension_log
 
 with guard_imports({"trio", "mypy"}):
     import trio
@@ -72,6 +73,7 @@ def debug(message: str) -> None:
     """Print debug message."""
     # TODO: Censor username/user files
     print(f"\n[{__title__}] DEBUG: {message}")
+    extension_log(f"[{__title__}] DEBUG: {message}")
 
 
 class Response(TypedDict):

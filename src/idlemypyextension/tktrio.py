@@ -35,7 +35,7 @@ from tkinter import messagebox
 from traceback import format_exception, print_exception
 from typing import TYPE_CHECKING, Any, TypeGuard
 
-from idlemypyextension import mttkinter
+from idlemypyextension import mttkinter, utils
 from idlemypyextension.moduleguard import guard_imports
 
 with guard_imports({"trio", "exceptiongroup"}):
@@ -214,6 +214,7 @@ class TkTrioRunner:
             # probably "main thread is not in main loop" error
             # mtTkinter is supposed to fix this sort of issue
             print_exception(exc)
+            utils.extension_log_exception(exc)
 
             self.cancel_current_task()
 
@@ -253,6 +254,7 @@ class TkTrioRunner:
             # a start group tick failing because of start_soon
             # not running from main thread because thread lock shenanigans
             print_exception(exc)
+            utils.extension_log_exception(exc)
 
             # We can't even show an error properly because of the same
             # issue!
@@ -262,6 +264,7 @@ class TkTrioRunner:
                 )
             except RuntimeError as exc:
                 print_exception(exc)
+                utils.extension_log_exception(exc)
         else:
             self.run_status = RunStatus.TRIO_RUNNING_CANCELED
 
@@ -298,6 +301,7 @@ class TkTrioRunner:
                 outcome.unwrap()
             except ExceptionGroup as exc:
                 print_exception(exc)
+                utils.extension_log_exception(exc)
 
         if self.run_status != RunStatus.NO_TASK:
             raise RuntimeError(

@@ -330,6 +330,25 @@ def undo_block(undo: UndoDelegator) -> Generator[None, None, None]:
         undo.undo_block_stop()
 
 
+def extension_log(content: str) -> None:
+    """Log content to extension log."""
+    if not LOGS_PATH.exists():
+        LOGS_PATH.mkdir(exist_ok=True)
+    log_file = LOGS_PATH / f"{TITLE}.log"
+    with log_file.open("a", encoding="utf-8") as fp:
+        format_time = time.strftime("[%Y-%m-%d %H:%M:%S] ")
+        for line in content.splitlines(keepends=True):
+            fp.write(f"{format_time}{line}")
+        if not line.endswith("\n"):
+            fp.write("\n")
+
+
+def extension_log_exception(exc: BaseException) -> None:
+    """Log exception to extension log."""
+    exception_text = "".join(traceback.format_exception(exc))
+    extension_log(exception_text)
+
+
 def log_exceptions(function: Callable[PS, T]) -> Callable[PS, T]:
     """Log any exceptions raised."""
 
@@ -339,14 +358,7 @@ def log_exceptions(function: Callable[PS, T]) -> Callable[PS, T]:
         try:
             return function(*args, **kwargs)
         except Exception as exc:
-            if not LOGS_PATH.exists():
-                LOGS_PATH.mkdir(exist_ok=True)
-            log_file = LOGS_PATH / f"{TITLE}.log"
-            with log_file.open("a", encoding="utf-8") as fp:
-                format_time = time.strftime("[%Y-%m-%d %H:%M:%S] ")
-                exception_text = "".join(traceback.format_exception(exc))
-                for line in exception_text.splitlines(keepends=True):
-                    fp.write(f"{format_time}{line}")
+            extension_log_exception(exc)
             raise
 
     return wrapper
