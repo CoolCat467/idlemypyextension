@@ -33,7 +33,7 @@ classifiers = [
 keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
     "mypy~=1.12.0",
-    "trio~=0.26.0",
+    "trio~=0.27.0",
 ]
 
 [tool.setuptools.dynamic]
