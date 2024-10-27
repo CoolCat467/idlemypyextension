@@ -47,7 +47,7 @@ user = ["idleuserextend~=0.0.1"]
 "Bug Tracker" = "https://github.com/CoolCat467/idlemypyextension/issues"
 
 [project.scripts]
-idlemypyextension = "idlemypyextension:check_installed"
+idlemypyextension = "idlemypyextension:cli_run"
 
 [tool.setuptools.package-data]
 idlemypyextension = ["py.typed"]

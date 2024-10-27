@@ -91,7 +91,7 @@ def check_installed(
     version: str,
     cls: type[BaseExtension] | None,
 ) -> bool:
-    """Make sure extension installed."""
+    """Make sure extension installed. Return True if installed correctly."""
     # Get list of system extensions
     extensions = set(idleConf.defaultCfg["extensions"])
 
@@ -559,7 +559,8 @@ class BaseExtension:
         If none of the comment pointers are going to be visible
         with the comment prefix, returns None.
 
-        Messages must all be on the same line and be in the same file
+        Messages must all be on the same line and be in the same file,
+        otherwise ValueError is raised.
         """
         line = comments[0].line
         file = comments[0].file

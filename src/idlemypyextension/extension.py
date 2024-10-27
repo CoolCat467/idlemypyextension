@@ -53,8 +53,8 @@ def debug(message: object) -> None:
 
 def parse_comments(
     mypy_output: str,
-    default_file: str,
-    default_line: int,
+    default_file: str = "<unknown file>",
+    default_line: int = 0,
 ) -> dict[str, list[utils.Comment]]:
     """Parse mypy output, return mapping of filenames to lists of comments."""
     error_type = re.compile(r"  \[[a-z\-]+\]\s*$")
@@ -75,7 +75,7 @@ def parse_comments(
         else:
             where, msg_type, text = output_line.split(": ", 2)
 
-            position = where.split(":")
+            position = where.split(":", 4)
 
             filename = position[0]
             if len(position) > 1:
@@ -263,6 +263,8 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         """Add type comments for target files.
 
         Return list of lines were a comment was added.
+
+        Changes are wrapped in an undo block.
         """
         # Split up comments by line in order
         line_data: dict[int, list[utils.Comment]] = {}
@@ -291,6 +293,8 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         """Add mypy comments for target filename.
 
         Return list of lines where comments were added.
+
+        Changes are wrapped in an undo block.
         """
         assert self.files.filename is not None
 
@@ -358,6 +362,8 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         - Number of lines attempted to add
         - List of line numbers added that were not already there
         otherwise empty because no content.
+
+        Changes are wrapped in an undo block.
 
         """
         if not data:
@@ -762,8 +768,8 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         """Extension cleanup before IDLE window closes."""
         # Wrapped in try except so failure doesn't cause zombie windows.
         del self.triorun
-        mttkinter.restore()
         try:
+            mttkinter.restore()
             self.unregister_async_events()
         except Exception as exc:
             traceback.print_exception(exc)

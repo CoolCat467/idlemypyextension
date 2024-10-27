@@ -207,7 +207,7 @@ def _tk__init__(self: Tk, *args: Any, **kwargs: Any) -> None:
     new_kwargs = {
         kw_name: kwargs.pop(kw_name)
         for kw_name in new_kwnames
-        if kwargs.get(kw_name, None) is not None
+        if kwargs.get(kw_name) is not None
     }
 
     # Call the original __init__ method, creating the internal tk member.
