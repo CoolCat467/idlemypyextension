@@ -22,11 +22,13 @@ from __future__ import annotations
 __title__ = "idlemypyextension"
 __author__ = "CoolCat467"
 __license__ = "GNU General Public License Version 3"
-__version__ = "1.0.4"
+__version__ = "1.1.0"
 
 
 import argparse
+import idlelib.pyshell as pyshell
 import sys
+import tkinter
 
 from idlemypyextension import utils
 from idlemypyextension.extension import idlemypyextension as idlemypyextension
@@ -48,13 +50,94 @@ def run(args: list[str]) -> int:
         action="version",
         version=f"{__title__} v{__version__}",
     )
+    parser.add_argument(
+        "infile",
+        nargs="?",
+        type=argparse.FileType("r"),
+        default=sys.stdin,
+    )
 
-    parser.parse_args(args)
+    namespace = parser.parse_args(args)
 
     if not args:
         if check_installed():
             return 0
         return 1
+
+    original_capture_warnings = pyshell.capture_warnings
+
+    def capture_warnings(enable: bool) -> None:
+        """Only enable capturing warnings."""
+        if enable:
+            original_capture_warnings(True)
+
+    # Start IDLE but make sure mainloop does not start so we can use it
+    # ourselves
+    class ExitException(BaseException):
+        """Exit Exception."""
+
+    def fake_mainloop(tk_root: tkinter.Tk) -> None:
+        """Fake Tkinter main loop. Crash instantly."""
+        raise ExitException()
+
+    try:
+        with utils.temporary_overwrite(tkinter.Tk, "mainloop", fake_mainloop):
+            with utils.temporary_overwrite(
+                sys,
+                "argv",
+                [pyshell.__file__, "-e"],  # open in editor mode
+            ):
+                pyshell.main()
+    except ExitException:
+        pass  # expected to happen
+    else:
+        # Something went wrong, did not get exit exception
+        pyshell.root.destroy()
+        pyshell.capture_warnings(False)
+        return 1
+
+    # Get file list and Tk Root from pyshell globals
+    flist = pyshell.flist
+
+    pyshell_window: pyshell.PyShellEditorWindow | None = {
+        v: k for k, v in flist.inversedict.items()
+    }.get(None)
+
+    if pyshell_window is None:
+        # Pyshell not created properly, exit.
+        pyshell.root.destroy()
+        pyshell.capture_warnings(False)
+        return 1
+
+    if not pyshell_window.extensions:
+        # No extensions loadex, close.
+        pyshell.root.destroy()
+        pyshell.capture_warnings(False)
+        return 1
+
+    extension: idlemypyextension | None = pyshell_window.extensions.get(
+        __title__,
+    )
+
+    if extension is None:
+        # Extension failed to load somehow, close
+        pyshell.root.destroy()
+        pyshell.capture_warnings(False)
+        return 1
+
+    # Add all comments to all files.
+    with namespace.infile as fp:
+        extension.add_mypy_messages(0, fp.read(), add_all_override=True)
+    # Close original blank window
+    del extension
+    pyshell_window.close()
+
+    # Run IDLE's main loop
+    while flist.inversedict:  # keep IDLE running while files are open.
+        pyshell.root.mainloop()
+    pyshell.root.destroy()
+    pyshell.capture_warnings(False)
+
     return 0
 
 

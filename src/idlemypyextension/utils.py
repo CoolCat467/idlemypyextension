@@ -330,6 +330,24 @@ def undo_block(undo: UndoDelegator) -> Generator[None, None, None]:
         undo.undo_block_stop()
 
 
+@contextmanager
+def temporary_overwrite(
+    object_: object,
+    attribute: str,
+    value: object,
+) -> Generator[None, None, None]:
+    """Temporarily overwrite object_.attribute with value, restore on exit."""
+    if not hasattr(object_, attribute):
+        yield None
+    else:
+        original = getattr(object_, attribute)
+        setattr(object_, attribute, value)
+        try:
+            yield None
+        finally:
+            setattr(object_, attribute, original)
+
+
 def extension_log(content: str) -> None:
     """Log content to extension log."""
     if not LOGS_PATH.exists():

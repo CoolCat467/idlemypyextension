@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
 DAEMON_TIMEOUT_MIN: Final = 5
 ACTION_TIMEOUT_MIN: Final = 5
+UNKNOWN_FILE: Final = "<unknown file>"
 
 
 def debug(message: object) -> None:
@@ -289,6 +290,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         start_line: int,
         mypy_output: str,
         only_filename: str | None = None,
+        add_all_override: bool = False,
     ) -> dict[str, list[int]]:
         """Add mypy comments for target filename.
 
@@ -296,14 +298,16 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         Changes are wrapped in an undo block.
         """
-        assert self.files.filename is not None
+        default_file = UNKNOWN_FILE
+        if self.files.filename is not None:
+            default_file = os.path.abspath(self.files.filename)
 
         if only_filename is not None:
             only_filename = os.path.abspath(only_filename)
 
         files = parse_comments(
             mypy_output,
-            os.path.abspath(self.files.filename),
+            default_file,
             start_line,
         )
 
@@ -311,7 +315,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         to_comment = list(files)
 
-        if self.typecomment_only_current_file:
+        if self.typecomment_only_current_file and not add_all_override:
             assert only_filename is not None
             to_comment = [only_filename]
 
@@ -339,6 +343,8 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         for target_filename in to_comment:
             if target_filename not in files:
+                continue
+            if target_filename == UNKNOWN_FILE:
                 continue
             file_comments = self.add_type_comments_for_file(
                 target_filename,

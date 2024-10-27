@@ -32,7 +32,7 @@ classifiers = [
 ]
 keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
-    "mypy~=1.12.0",
+    "mypy~=1.13.0",
     "trio~=0.27.0",
 ]
 
@@ -129,6 +129,7 @@ extend-ignore = [
     "D213",   # multi-line-summary-second-line
     "D417",   # "Missing argument descriptions"
     "E501",   # line-too-long
+    "ICN001", # unconventional-import-alias
     "S101",   # use of assert for tests and type narrowing
     "SIM117", # Use multiple with statements at the same time
 ]
