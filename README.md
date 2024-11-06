@@ -1,7 +1,7 @@
 # IdleMypyExtension
 Python IDLE extension to perform mypy analysis on an open file
 
-[![Tests](https://github.com/CoolCat467/idlemypyextension/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/CoolCat467/idlemypyextension/actions/workflows/tests.yml)
+[![CI](https://github.com/CoolCat467/idlemypyextension/actions/workflows/ci.yml/badge.svg)](https://github.com/CoolCat467/idlemypyextension/actions/workflows/ci.yml)
 <!-- BADGIE TIME -->
 
 [![pre-commit.ci status](https://results.pre-commit.ci/badge/github/CoolCat467/idlemypyextension/main.svg)](https://results.pre-commit.ci/latest/github/CoolCat467/idlemypyextension/main)
@@ -91,3 +91,26 @@ definition
 
 `timeout_mins` controls how long the mypy daemon will time out after,
 in minutes.
+
+## Annotating files from mypy error logs
+I kept running into cases a lot where CI systems generate mypy error logs, and
+I needed to fix those errors with my local copy. If you copy all the mypy
+errors into a file, say `error.txt`, you can have idlemypyextension annotate
+all of those files with a command like this:
+
+```bash
+idlemypyextension error.txt
+```
+
+which will open a blank IDLE window, hook into `idlemypyextension`, have it
+add annotations to all files referenced in error log file, and then close
+that temporary blank window, leaving all the files with errors still open.
+
+
+### Links
+* Source Code - https://github.com/CoolCat467/idlemypyextension.git
+* Issues      - https://github.com/CoolCat467/idlemypyextension/issues
+
+### License
+-------
+Code and documentation are available according to the GNU General Public License v3.0 (see [LICENSE](https://github.com/CoolCat467/idlemypyextension/blob/HEAD/LICENSE)).
