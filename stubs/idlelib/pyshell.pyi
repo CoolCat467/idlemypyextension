@@ -35,11 +35,14 @@ from types import CodeType
 from typing import Any
 
 root: Tk
+flist: PyShellFileList
 use_subprocess: bool
 HOST: str
 PORT: int
 eof: str
 warning_stream: IOBase | None
+usage_msg: str
+_warnings_showwarning: bool
 
 def idle_showwarning(
     message: str,
@@ -161,8 +164,8 @@ class ModifiedInterpreter(InteractiveInterpreter):
 
 class PyShell(OutputWindow):
     shell_title: str
-    ColorDelegator: ModifiedColorDelegator
-    UndoDelegator: ModifiedUndoDelegator
+    ColorDelegator: ModifiedColorDelegator  # type: ignore[assignment]
+    UndoDelegator: ModifiedUndoDelegator  # type: ignore[assignment]
     menu_specs: list[tuple[str, str]]
     rmenu_specs: list[tuple[str, str]]  # type: ignore[assignment]
     allow_line_numbers: bool
@@ -234,7 +237,4 @@ class PyShell(OutputWindow):
     def on_squeezed_expand(self, index: Any, text: Any, tags: Any) -> None: ...
 
 def fix_x11_paste(root: Tk) -> None: ...
-
-usage_msg: str
-
 def main() -> None: ...

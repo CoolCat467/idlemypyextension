@@ -59,6 +59,10 @@ def does_path_interfere(
     if ignorepaths is None:
         ignorepaths = set()
 
+    # Don't read root
+    if len(path.split(os.sep)) <= 2:
+        return False
+
     for dirpath, dirnames, filenames in os.walk(path, topdown=True):
         # Remove directories we have already visited
         for dirname in tuple(dirnames):

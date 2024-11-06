@@ -99,15 +99,14 @@ def run(args: list[str]) -> int:
     # Get file list and Tk Root from pyshell globals
     flist = pyshell.flist
 
-    pyshell_window: pyshell.PyShellEditorWindow | None = {
-        v: k for k, v in flist.inversedict.items()
-    }.get(None)
+    pyshell_window = {v: k for k, v in flist.inversedict.items()}.get(None)
 
     if pyshell_window is None:
         # Pyshell not created properly, exit.
         pyshell.root.destroy()
         pyshell.capture_warnings(False)
         return 1
+    assert isinstance(pyshell_window, pyshell.PyShellEditorWindow)
 
     if not pyshell_window.extensions:
         # No extensions loadex, close.
@@ -115,15 +114,14 @@ def run(args: list[str]) -> int:
         pyshell.capture_warnings(False)
         return 1
 
-    extension: idlemypyextension | None = pyshell_window.extensions.get(
-        __title__,
-    )
+    extension = pyshell_window.extensions.get(__title__)
 
     if extension is None:
         # Extension failed to load somehow, close
         pyshell.root.destroy()
         pyshell.capture_warnings(False)
         return 1
+    assert isinstance(extension, idlemypyextension)
 
     # Add all comments to all files.
     with namespace.infile as fp:
