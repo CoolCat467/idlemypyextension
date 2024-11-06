@@ -648,6 +648,8 @@ class BaseExtension:
 
         Changes are wrapped in an undo block.
         """
+        if not lines:
+            return 0
         file_comments = self.add_comments(
             [
                 Comment(
@@ -658,7 +660,7 @@ class BaseExtension:
                 for line in lines
             ],
         )
-        return file_comments[file]
+        return file_comments.get(file, 0)
 
     def remove_selected_extension_comments(self) -> bool:
         """Remove selected extension comments. Return if removed any comments.

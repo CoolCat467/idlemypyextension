@@ -681,26 +681,26 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         """Add all the comments (error and regular) from dmypy response."""
         debug(f"type check {response = }")
 
-        if "out" in response:
+        if response.get("out"):
             # Add code comments
             self.add_mypy_messages(
                 self.editwin.getlineno(),
                 response["out"],
                 file,
             )
-        if "error" in response:
+        if response.get("error"):
             self.add_errors(file, self.editwin.getlineno(), response["error"])
-        if "err" in response:
+        if response.get("err"):
             # Add mypy run errors
             self.add_errors(file, self.editwin.getlineno(), response["err"])
-        if "stdout" in response:
+        if response.get("stdout"):
             self.add_extra_data(
                 file,
                 self.editwin.getlineno(),
                 response["stdout"],
                 prefix="dmypy run stdout: ",
             )
-        if "stderr" in response:
+        if response.get("stderr"):
             self.add_extra_data(
                 file,
                 self.editwin.getlineno(),
