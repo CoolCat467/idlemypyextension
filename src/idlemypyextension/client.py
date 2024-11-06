@@ -69,11 +69,17 @@ if TYPE_CHECKING:
     from typing_extensions import NotRequired
 
 
+# If should force to use base request system mypy implements
+# If False and not on windows, will manually read unix sockets asynchronously.
+FORCE_BASE_REQUEST: bool = False
+
+
 def debug(message: str) -> None:
     """Print debug message."""
     # TODO: Censor username/user files
-    print(f"\n[{__title__}] DEBUG: {message}")
-    extension_log(f"[{__title__}] DEBUG: {message}")
+    content = f"[{__title__}] DEBUG: {message}"
+    print(f"\n{content}")
+    extension_log(content)
 
 
 class Response(TypedDict):
@@ -298,9 +304,14 @@ async def request(
     _, name = get_status(status_file)
 
     async with REQUEST_LOCK:
-        if sys.platform == "win32":
+        if sys.platform == "win32" or FORCE_BASE_REQUEST:
             return await _request_win32(name, request_arguments, timeout)
-        return await _request_linux(name, request_arguments, timeout)
+        # Windows run thinks unreachable, everything else knows it is
+        return await _request_linux(  # type: ignore[unreachable,unused-ignore]
+            name,
+            request_arguments,
+            timeout,
+        )
 
 
 def is_running(status_file: str) -> bool:
