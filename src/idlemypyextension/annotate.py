@@ -30,6 +30,8 @@ import re
 from tokenize import TokenInfo, generate_tokens, tok_name
 from typing import TYPE_CHECKING, Any, Final, NamedTuple, NoReturn
 
+from idlemypyextension.utils import extension_log, extension_log_exception
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Generator, Sequence
 
@@ -39,7 +41,9 @@ TYPING_LOWER: Final = {"List", "Set", "Type", "Dict", "Tuple", "Overload"}
 def debug(message: str) -> None:
     """Print debug message."""
     # TODO: Censor username/user files
-    print(f"\n[{__title__}] DEBUG: {message}")
+    content = f"[{__title__}] DEBUG: {message}"
+    print(f"\n{content}")
+    extension_log(content)
 
 
 class ParseError(Exception):
@@ -483,6 +487,7 @@ def tokenize_definition(
                 ArgumentDefault(read_fstring(token, token_generator)),
             )
         elif tok_name[token.type] == "ENDMARKER":
+            debug(f"{tokens = }")
             raise EOFError(
                 "Found ENDMARKER token while reading function definition",
             )
@@ -810,11 +815,16 @@ def get_annotation(
             annotation["line"],
             get_line,
         )
-    except ParseError:
+    except ParseError as exc:
         debug(f"Could not tokenize definition\n{annotation = }")
+        extension_log_exception(exc)
         raise
     except EOFError as exc:
-        debug(f"{annotation = }")
+        debug(
+            f"Reached End of File, expected end of definition\n{annotation = }",
+        )
+        extension_log_exception(exc)
+
         raise ParseError(
             "Reached End of File, expected end of definition",
         ) from exc
