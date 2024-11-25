@@ -110,6 +110,7 @@ that temporary blank window, leaving all the files with errors still open.
 ### Links
 * Source Code - https://github.com/CoolCat467/idlemypyextension.git
 * Issues      - https://github.com/CoolCat467/idlemypyextension/issues
+* Pypi        - https://pypi.org/project/idlemypyextension/
 
 ### License
 -------
