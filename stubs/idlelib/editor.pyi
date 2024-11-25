@@ -2,7 +2,7 @@ from collections.abc import Callable
 from idlelib import (
     configdialog as configdialog,
     grep as grep,
-    help as help,
+    help as help,  # noqa: A004
     help_about as help_about,
     macosx as macosx,
     mainmenu as mainmenu,

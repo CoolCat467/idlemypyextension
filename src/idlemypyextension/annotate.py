@@ -545,7 +545,7 @@ def get_typevalue_repr(
 class TypeValue:
     """A type value, potentially collection of multiple."""
 
-    __slots__ = ("name", "args")
+    __slots__ = ("args", "name")
 
     def __init__(
         self,
@@ -587,7 +587,7 @@ def list_or(values: Collection[str]) -> str:
 class Parser:
     """Implementation of the type comment parser."""
 
-    __slots__ = ("tokens", "i")
+    __slots__ = ("i", "tokens")
 
     def __init__(self, tokens: list[Token]) -> None:
         """Initialize with tokens list."""

@@ -397,13 +397,13 @@ class BaseExtension:
     """Base extension class."""
 
     __slots__ = (
+        "comment_prefix",
         "editwin",
-        "text",
-        "undo",
-        "formatter",
         "files",
         "flist",
-        "comment_prefix",
+        "formatter",
+        "text",
+        "undo",
     )
 
     # Extend the file and format menus.

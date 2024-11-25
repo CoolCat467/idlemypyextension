@@ -38,7 +38,7 @@ jobs:
 
       # apply newer versions' formatting
       - name: Black
-        run: black src/checkers
+        run: black src/idlemypyextension
 
       - name: uv
         run: |

@@ -148,9 +148,8 @@ class _TkAttr:
         # Check if we're in the creation thread
         if threading.current_thread() == self._tk._creation_thread:
             # We're in the creation thread; just call the event directly
-            if (
-                self._tk._debug >= 8
-                or self._tk._debug >= 3
+            if self._tk._debug >= 8 or (
+                self._tk._debug >= 3
                 and self._attr.__name__ == "call"
                 and len(args) >= 1
                 and args[0] == "after"

@@ -148,13 +148,13 @@ class TkTrioRunner:
     """Tk Trio Runner - Run Trio on top of Tkinter's main loop."""
 
     __slots__ = (
-        "root",
-        "call_tk_close",
-        "nursery",
-        "run_status",
-        "recieved_loop_close_request",
-        "installed_proto_override",
         "__weakref__",
+        "call_tk_close",
+        "installed_proto_override",
+        "nursery",
+        "recieved_loop_close_request",
+        "root",
+        "run_status",
     )
 
     def __new__(
