@@ -38,6 +38,10 @@ repos:
       - id: codespell
         additional_dependencies:
           - tomli
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.28.4
+    hooks:
+      - id: typos
   - repo: local
     hooks:
       - id: project-requirements

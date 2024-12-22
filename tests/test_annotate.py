@@ -688,7 +688,7 @@ def test_get_annotation_fstring_3_12() -> None:
 #             print(annotate.read_fstring(first_read, tokenize_gen))
 
 
-def test_get_annotation_tokenization_falure() -> None:
+def test_get_annotation_tokenization_failure() -> None:
     annotation_dict = {
         "line": 0,
     }
@@ -756,7 +756,7 @@ def test_read_lambda(end: str) -> None:
         assert content == text[:-1], f"{content!r} != {text!r}"
 
 
-def test_get_annotation_tokenization_eof_falure() -> None:
+def test_get_annotation_tokenization_eof_failure() -> None:
     annotation_dict = {
         "line": 0,
     }

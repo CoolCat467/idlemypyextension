@@ -81,6 +81,9 @@ combine-as-imports = true
 all = true
 disable_all_dunder_policy = true
 
+[tool.typos]
+files.extend-exclude = ["*.pyi"]
+
 [tool.black]
 line-length = 79
 

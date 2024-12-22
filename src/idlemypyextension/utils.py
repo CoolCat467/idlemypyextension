@@ -198,7 +198,7 @@ def set_insert_and_move(text: Text, index: str) -> None:
     text.update_idletasks()
 
 
-def higlight_region(text: Text, tag: str, first: str, last: str) -> None:
+def highlight_region(text: Text, tag: str, first: str, last: str) -> None:
     """Add a given tag to the region of text between first and last indices."""
     if first == last:
         text.tag_add(tag, first)
@@ -223,7 +223,7 @@ def show_hit(text: Text, first: str, last: str) -> None:
     beforehand.
     """
     text.tag_remove("sel", "1.0", "end")
-    higlight_region(text, "hit", first, last)
+    highlight_region(text, "hit", first, last)
 
     set_insert_and_move(text, first)
 

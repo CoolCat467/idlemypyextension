@@ -152,7 +152,7 @@ class TkTrioRunner:
         "call_tk_close",
         "installed_proto_override",
         "nursery",
-        "recieved_loop_close_request",
+        "received_loop_close_request",
         "root",
         "run_status",
     )
@@ -195,7 +195,7 @@ class TkTrioRunner:
 
         self.nursery: trio.Nursery
         self.run_status = RunStatus.NO_TASK
-        self.recieved_loop_close_request = False
+        self.received_loop_close_request = False
         self.installed_proto_override = False
 
         with contextlib.suppress(AttributeError):
@@ -327,9 +327,9 @@ class TkTrioRunner:
 
         def shutdown_then_call() -> None:
             # If this is first time, withdraw root
-            if not self.recieved_loop_close_request:
+            if not self.received_loop_close_request:
                 self.root.withdraw()
-            self.recieved_loop_close_request = True
+            self.received_loop_close_request = True
             # If a task is still running
             if self.run_status == RunStatus.TRIO_RUNNING_CANCELING:
                 # Error happened and cancel failed
@@ -416,7 +416,7 @@ class TkTrioRunner:
     def __call__(self, function: Callable[[], Awaitable[Any]]) -> None:
         """Schedule async function for the future."""
         # If host loop requested to close, do not run any more tasks.
-        if self.recieved_loop_close_request:
+        if self.received_loop_close_request:
             return None
 
         if self.run_status == RunStatus.TRIO_RUNNING_CANCELING:

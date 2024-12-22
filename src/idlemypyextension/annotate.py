@@ -354,7 +354,7 @@ def tokenize_definition(
                     default_arg -= 1
                     tokens.append(EndSeparator(")"))
             elif default_arg:
-                # If defining argument default, add ArgumetDefault
+                # If defining argument default, add ArgumentDefault
                 if tokens and isinstance(tokens[-1], ArgumentDefault):
                     assert tokens[-1].text is not None
                     last = tokens[-1].text.rstrip()[-1]
