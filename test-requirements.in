@@ -16,7 +16,7 @@ typing-extensions
 
 # Idlemypyextension's own dependencies
 #<TOML_DEPENDENCIES>
-mypy~=1.14.0
+mypy~=1.14.1
 orjson; implementation_name == "cpython"
-trio~=0.27.0
+trio~=0.28.0
 #</TOML_DEPENDENCIES>

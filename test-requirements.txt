@@ -74,7 +74,7 @@ tomli==2.2.1 ; python_full_version <= '3.11'
     #   coverage
     #   mypy
     #   pytest
-trio==0.27.0
+trio==0.28.0
     # via
     #   -r test-requirements.in
     #   pytest-trio
