@@ -39,7 +39,7 @@ repos:
         additional_dependencies:
           - tomli
   - repo: https://github.com/crate-ci/typos
-    rev: v1.28.4
+    rev: codespell-dict-v0.5.0
     hooks:
       - id: typos
   - repo: local
