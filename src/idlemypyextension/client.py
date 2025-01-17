@@ -306,7 +306,7 @@ async def request(
     async with REQUEST_LOCK:
         if sys.platform == "win32" or FORCE_BASE_REQUEST:
             return await _request_win32(name, request_arguments, timeout)
-        # Windows run thinks unreachable, everything else knows it is
+        # Windows run thinks unreachable, everything else knows it is not
         return await _request_linux(  # type: ignore[unreachable,unused-ignore]
             name,
             request_arguments,

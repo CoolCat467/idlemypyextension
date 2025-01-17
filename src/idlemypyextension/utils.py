@@ -361,10 +361,12 @@ def extension_log(content: str) -> None:
             fp.write("\n")
 
 
-def extension_log_exception(exc: BaseException) -> None:
+def extension_log_exception(exc: BaseException, print_: bool = True) -> None:
     """Log exception to extension log."""
     exception_text = "".join(traceback.format_exception(exc))
     extension_log(exception_text)
+    if print_:
+        print(exception_text, file=sys.stderr)
 
 
 def log_exceptions(function: Callable[PS, T]) -> Callable[PS, T]:

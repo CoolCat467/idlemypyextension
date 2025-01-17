@@ -24,6 +24,7 @@ __title__ = "extension"
 __author__ = "CoolCat467"
 __license__ = "GNU General Public License Version 3"
 
+import contextlib
 import json
 import math
 import os
@@ -32,14 +33,14 @@ import sys
 import traceback
 from functools import partial, wraps
 from idlelib.config import idleConf
-from typing import TYPE_CHECKING, Any, ClassVar, Final
+from typing import TYPE_CHECKING, ClassVar, Final
 
 from idlemypyextension import annotate, client, mttkinter, tktrio, utils
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from idlelib.pyshell import PyShellEditorWindow
-    from tkinter import Event
+    from tkinter import Event, Misc
 
 DAEMON_TIMEOUT_MIN: Final = 5
 ACTION_TIMEOUT_MIN: Final = 5
@@ -193,13 +194,14 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
     def get_async(
         self,
         name: str,
-    ) -> Callable[[Event[Any]], str]:
+    ) -> Callable[[Event[Misc]], str]:
         """Get sync callable to run async function."""
         async_function = getattr(self, name)
 
+        # Type of decorated function contains type `Any`
         @wraps(async_function)
         @utils.log_exceptions
-        def call_trio(event: Event[Any]) -> str:
+        def call_trio(event: Event[Misc]) -> str:  # type: ignore[misc]
             self.triorun(partial(async_function, event))
             return "break"
 
@@ -417,7 +419,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
     async def shutdown_dmypy_daemon_event_async(
         self,
-        event: Event[Any],
+        event: Event[Misc],
     ) -> str:
         """Shutdown dmypy daemon event handler."""
         # pylint: disable=unused-argument
@@ -651,7 +653,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         # Everything worked
         return None, file
 
-    async def suggest_signature_event_async(self, event: Event[Any]) -> str:
+    async def suggest_signature_event_async(self, event: Event[Misc]) -> str:
         """Handle suggest signature event."""
         # pylint: disable=unused-argument
         init_return, file = self.initial()
@@ -712,7 +714,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         # as it freezes a bit while mypy looks at the file
         self.text.bell()
 
-    async def type_check_event_async(self, event: Event[Any]) -> str:
+    async def type_check_event_async(self, event: Event[Misc]) -> str:
         """Perform a mypy check and add comments."""
         init_return, file = self.initial()
 
@@ -738,19 +740,19 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         return "break"
 
     @utils.log_exceptions
-    def remove_type_comments_event(self, _event: Event[Any]) -> str:
+    def remove_type_comments_event(self, _event: Event[Misc]) -> str:
         """Remove selected extension comments."""
         self.remove_selected_extension_comments()
         return "break"
 
     @utils.log_exceptions
-    def remove_all_type_comments(self, _event: Event[Any]) -> str:
+    def remove_all_type_comments(self, _event: Event[Misc]) -> str:
         """Remove all extension comments."""
         self.remove_all_extension_comments()
         return "break"
 
     @utils.log_exceptions
-    def find_next_type_comment_event(self, _event: Event[Any]) -> str:
+    def find_next_type_comment_event(self, _event: Event[Misc]) -> str:
         """Find next extension comment by hacking the search dialog engine."""
         # Reload configuration
         self.reload()
@@ -773,9 +775,10 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
     def close(self) -> None:
         """Extension cleanup before IDLE window closes."""
         # Wrapped in try except so failure doesn't cause zombie windows.
-        del self.triorun
+        with contextlib.suppress(AttributeError):
+            del self.triorun
         try:
             mttkinter.restore()
             self.unregister_async_events()
         except Exception as exc:
-            traceback.print_exception(exc)
+            utils.extension_log_exception(exc)
