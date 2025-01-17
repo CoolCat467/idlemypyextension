@@ -287,7 +287,7 @@ def read_fstring(
 def tokenize_definition(
     start_line: int,
     get_line: Callable[[int], str],
-) -> tuple[list[Token], int]:
+) -> tuple[list[Token], int]:  # pragma: nocover
     """Return list of Tokens and number of lines after start."""
     current_line_no = start_line
 

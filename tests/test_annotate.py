@@ -6,6 +6,7 @@ import sys
 from io import StringIO
 from tokenize import generate_tokens
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -13,6 +14,17 @@ from idlemypyextension import annotate
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Sequence
+
+
+@pytest.fixture(autouse=True)
+def mock_extension_log() -> MagicMock:
+    """Fixture to override extension_log with an empty function."""
+    with patch(
+        "idlemypyextension.utils.extension_log",
+        return_value=None,
+    ) as mock_log:
+        with patch("idlemypyextension.annotate.extension_log", new=mock_log):
+            yield mock_log
 
 
 def test_parse_error() -> None:
@@ -611,6 +623,15 @@ def test_invalid_tokenize_definition() -> None:
             ],
             "str",
             """def bad_default_arg(name_map: set[str] = {"jerald", "cat", "bob"}) -> str:""",
+            None,
+        ),
+        (
+            """def lambda_arg_test(call_func = lambda x, y: x+y):""",
+            [
+                "Callable[[int, int], int]",
+            ],
+            "int",
+            """def lambda_arg_test(call_func: Callable[[int, int], int] = lambda x, y: x+y) -> int:""",
             None,
         ),
     ],

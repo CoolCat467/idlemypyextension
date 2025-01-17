@@ -32,7 +32,7 @@ import weakref
 from enum import IntEnum, auto
 from functools import partial, wraps
 from tkinter import messagebox
-from traceback import format_exception, print_exception
+from traceback import format_exception
 from typing import TYPE_CHECKING, Any, TypeGuard
 
 from idlemypyextension import mttkinter, utils
@@ -41,21 +41,23 @@ from idlemypyextension.moduleguard import guard_imports
 with guard_imports({"trio", "exceptiongroup"}):
     import trio
 
-    if sys.version_info < (3, 11):
+    if sys.version_info < (3, 11):  # pragma: nocover
         from exceptiongroup import ExceptionGroup
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from outcome import Outcome
-    from typing_extensions import Self
+    from typing_extensions import Self, TypeVarTuple, Unpack
+
+    PosArgT = TypeVarTuple("PosArgT")
 
 
 # Use mttkinter somewhere so pycln doesn't eat it
 assert mttkinter.TRUE
 
 
-def debug(message: object) -> None:
+def debug(message: object) -> None:  # pragma: nocover
     """Print debug message."""
     # TODO: Censor username/user files
     print(f"\n[{__title__}] DEBUG: {message}")
@@ -97,7 +99,7 @@ def uninstall_protocol_override(root: tk.Wm) -> None:
     If root.protocol has the __wrapped__ attribute, reset it
     to what it was originally
     """
-    if hasattr(root.protocol, "__wrapped__"):
+    if hasattr(root.protocol, "__wrapped__"):  # pragma: nocover
         root.protocol = root.protocol.__wrapped__  # type: ignore
 
 
@@ -117,7 +119,7 @@ class RunStatus(IntEnum):
     NO_TASK = auto()
 
 
-def evil_does_trio_have_runner() -> bool:
+def evil_does_trio_have_runner() -> bool:  # pragma: nocover
     """Evil function to see if trio has a runner."""
     core = getattr(trio, "_core", None)
     if core is None:
@@ -183,8 +185,6 @@ class TkTrioRunner:
         restore_close: Callable[[], Any] | None = None,
     ) -> None:
         """Initialize trio runner."""
-        if not is_tk_wm_and_misc_subclass(root):
-            raise ValueError("Must be subclass of both tk.Misc and tk.Wm")
         if (
             hasattr(root, "__trio__")
             and getattr(root, "__trio__", lambda: None)() is self
@@ -203,8 +203,8 @@ class TkTrioRunner:
 
     def schedule_task_threadsafe(
         self,
-        function: Callable[..., Any],
-        *args: Any,
+        function: Callable[[Unpack[PosArgT]], object],
+        *args: Unpack[PosArgT],
     ) -> None:
         """Schedule task in Tkinter's event loop."""
         try:
@@ -213,7 +213,6 @@ class TkTrioRunner:
             debug(f"Exception scheduling task {function = }")
             # probably "main thread is not in main loop" error
             # mtTkinter is supposed to fix this sort of issue
-            print_exception(exc)
             utils.extension_log_exception(exc)
 
             self.cancel_current_task()
@@ -253,7 +252,6 @@ class TkTrioRunner:
             # because the exception that triggered this was from
             # a start group tick failing because of start_soon
             # not running from main thread because thread lock shenanigans
-            print_exception(exc)
             utils.extension_log_exception(exc)
 
             # We can't even show an error properly because of the same
@@ -263,10 +261,22 @@ class TkTrioRunner:
                     "".join(format_exception(exc)),
                 )
             except RuntimeError as exc:
-                print_exception(exc)
                 utils.extension_log_exception(exc)
         else:
             self.run_status = RunStatus.TRIO_RUNNING_CANCELED
+
+    def _done_callback(self, outcome: Outcome[None]) -> None:
+        """Handle when trio is done running."""
+        assert self.run_status in {
+            RunStatus.TRIO_RUNNING_CANCELED,
+            RunStatus.TRIO_RUNNING,
+        }
+        self.run_status = RunStatus.NO_TASK
+        del self.nursery
+        try:
+            outcome.unwrap()
+        except ExceptionGroup as exc:
+            utils.extension_log_exception(exc)
 
     def _start_async_task(
         self,
@@ -290,18 +300,7 @@ class TkTrioRunner:
             return
 
         def done_callback(outcome: Outcome[None]) -> None:
-            """Handle when trio is done running."""
-            assert self.run_status in {
-                RunStatus.TRIO_RUNNING_CANCELED,
-                RunStatus.TRIO_RUNNING,
-            }
-            self.run_status = RunStatus.NO_TASK
-            del self.nursery
-            try:
-                outcome.unwrap()
-            except ExceptionGroup as exc:
-                print_exception(exc)
-                utils.extension_log_exception(exc)
+            self._done_callback(outcome)
 
         if self.run_status != RunStatus.NO_TASK:
             raise RuntimeError(
