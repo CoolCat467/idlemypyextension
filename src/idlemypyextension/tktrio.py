@@ -133,17 +133,11 @@ def evil_does_trio_have_runner() -> bool:  # pragma: nocover
     return hasattr(global_run_context, "runner")
 
 
-class TKMiscWmSubclass(tk.Misc, tk.Wm):
-    """Subclass of both tkinter Misc and tkinter Wm."""
-
-    __slots__ = ()
-
-
 def is_tk_wm_and_misc_subclass(
-    val: tk.Tk | tk.BaseWidget | tk.Wm | tk.Misc,
-) -> TypeGuard[TKMiscWmSubclass]:
-    """Return if value is an instance of both tk.Misc and tk.Wm."""
-    return isinstance(val, tk.Misc) and isinstance(val, tk.Wm)
+    val: tk.Toplevel | tk.Tk | object,
+) -> TypeGuard[tk.Toplevel | tk.Tk]:
+    """Return if value is an instance of tk.Toplevel."""
+    return isinstance(val, tk.Toplevel | tk.Tk)
 
 
 class TkTrioRunner:
@@ -161,7 +155,7 @@ class TkTrioRunner:
 
     def __new__(
         cls,
-        root: tk.Wm | tk.Misc,
+        root: tk.Toplevel | tk.Tk,
         *args: Any,
         **kwargs: Any,
     ) -> Self:
@@ -181,7 +175,7 @@ class TkTrioRunner:
 
     def __init__(
         self,
-        root: tk.Wm | tk.Misc,
+        root: tk.Toplevel | tk.Tk,
         restore_close: Callable[[], Any] | None = None,
     ) -> None:
         """Initialize trio runner."""
@@ -199,7 +193,7 @@ class TkTrioRunner:
         self.installed_proto_override = False
 
         with contextlib.suppress(AttributeError):
-            root.__trio__ = weakref.ref(self)  # type: ignore[attr-defined]
+            root.__trio__ = weakref.ref(self)  # type: ignore[union-attr]
 
     def schedule_task_threadsafe(
         self,
@@ -473,7 +467,7 @@ def run() -> None:
                 raise
         return "trio done!"
 
-    root = tk.Tk(className="Trio Test")
+    root = tk.Tk()
 
     def trigger_trio_runs() -> None:
         trio_run = TkTrioRunner(root)
