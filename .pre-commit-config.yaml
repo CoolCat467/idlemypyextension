@@ -23,7 +23,7 @@ repos:
     hooks:
       - id: black
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.1
+    rev: v0.9.2
     hooks:
       - id: ruff
         types: [file]
@@ -42,11 +42,3 @@ repos:
     rev: dictgen-v0.3.1
     hooks:
       - id: typos
-  - repo: local
-    hooks:
-      - id: project-requirements
-        name: regenerate requirements.in
-        language: system
-        entry: python tools/project_requirements.py
-        pass_filenames: false
-        files: ^(test-requirements.in)|(pyproject.toml)$

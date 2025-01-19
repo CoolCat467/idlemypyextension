@@ -28,7 +28,7 @@ __version__ = "1.1.0"
 import argparse
 import idlelib.pyshell as pyshell
 import sys
-import tkinter
+import tkinter as tk
 
 from idlemypyextension import utils
 from idlemypyextension.extension import idlemypyextension as idlemypyextension
@@ -76,12 +76,12 @@ def run(args: list[str]) -> int:
     class ExitException(BaseException):
         """Exit Exception."""
 
-    def fake_mainloop(tk_root: tkinter.Tk) -> None:
+    def fake_mainloop(tk_root: tk.Tk) -> None:
         """Fake Tkinter main loop. Crash instantly."""
         raise ExitException()
 
     try:
-        with utils.temporary_overwrite(tkinter.Tk, "mainloop", fake_mainloop):
+        with utils.temporary_overwrite(tk.Tk, "mainloop", fake_mainloop):
             with utils.temporary_overwrite(
                 sys,
                 "argv",

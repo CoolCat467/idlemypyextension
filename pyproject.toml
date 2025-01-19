@@ -43,6 +43,18 @@ version = {attr = "idlemypyextension.__init__.__version__"}
 
 [project.optional-dependencies]
 user = ["idleuserextend~=0.0.1"]
+tests = [
+    "pytest>=5.0",
+    "pytest-cov",
+    "pytest-trio",
+    "coverage>=7.2.5",
+    "uv>=0.5.21",
+]
+tools = [
+    'black>=24.10.0; implementation_name == "cpython"',
+    "ruff>=0.9.2",
+    "codespell>=2.3.0",
+]
 
 [project.urls]
 "Source" = "https://github.com/CoolCat467/idlemypyextension"
@@ -94,7 +106,6 @@ select = [
     "B",     # flake8-bugbear
     "C4",    # flake8-comprehensions
     "COM",   # flake8-commas
-    "CPY",   # flake8-copyright
     "D",     # pydocstyle
     "E",     # Error
     "EXE",   # flake8-executable
@@ -121,22 +132,22 @@ select = [
     "YTT",   # flake8-2020
 ]
 extend-ignore = [
-    "D203",   # One blank line before class
-    "D204",   # blank line thing
+    "D203",   # one-blank-line-before-class
+    "D204",   # one-blank-line-after-class
     "D211",   # no-blank-line-before-class
     "D213",   # multi-line-summary-second-line
-    "D417",   # "Missing argument descriptions"
+    "D417",   # undocumented-param "Missing argument descriptions"
     "E501",   # line-too-long
-    "ICN001", # unconventional-import-alias
-    "S101",   # use of assert for tests and type narrowing
-    "SIM117", # Use multiple with statements at the same time
+    "PYI041", # redundant-numeric-union
+    "S101",   # assert (use of assert for tests and type narrowing)
+    "SIM117", # multiple-with-statements
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = [
     "D100",  # undocumented-public-module
     "D103",  # undocumented-public-function
-    "D107",  # Missing docstring
+    "D107",  # undocumented-public-init
 ]
 "stubs/*" = [
     "A001",  # builtin-variable-shadowing
@@ -158,6 +169,9 @@ testpaths = [
 branch = true
 source_pkgs = ["idlemypyextension"]
 omit = []
+parallel = true
+relative_files = true
+source = ["."]
 
 [tool.coverage.report]
 precision = 1
