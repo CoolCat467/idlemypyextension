@@ -203,7 +203,7 @@ class EditorWindow:
     def setvar(
         self,
         name: str,
-        value: str | int | float | bool,  # noqa: PYI041
+        value: str | int | float | bool,
         vartype: Variable | None = ...,
     ) -> None: ...
     def get_var_obj(
