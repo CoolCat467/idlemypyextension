@@ -40,7 +40,7 @@ jobs:
 
       # apply newer versions' formatting
       - name: Pre-commit updates
-        run: uv run pre-commit run -a
+        run: uv run pre-commit run -a || true
 
       - name: Commit changes and create automerge PR
         env:
