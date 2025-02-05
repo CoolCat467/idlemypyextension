@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-# Copyright (C) 2023-2024  CoolCat467
+# Copyright (C) 2023-2025  CoolCat467
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@ from __future__ import annotations
 __title__ = "idlemypyextension"
 __author__ = "CoolCat467"
 __license__ = "GNU General Public License Version 3"
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 
 import argparse
