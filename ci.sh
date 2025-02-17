@@ -46,7 +46,7 @@ esac
 python -m pip install uv==$UV_VERSION
 
 if [ "$CHECK_FORMATTING" = "1" ]; then
-    python -m uv sync --extra tests --extra tools
+    python -m uv sync --locked --extra tests --extra tools
     echo "::endgroup::"
     source check.sh
 else
@@ -54,11 +54,11 @@ else
     # expands to 0 != 1 if NO_TEST_REQUIREMENTS is not set, if set the `-0` has no effect
     # https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html#tag_18_06_02
     if [ "${NO_TEST_REQUIREMENTS-0}" == 1 ]; then
-        python -m uv sync --extra tests
+        python -m uv sync --locked --extra tests
         flags=""
         #"--skip-optional-imports"
     else
-        python -m uv sync --extra tests --extra tools
+        python -m uv sync --locked --extra tests --extra tools
         flags=""
     fi
 
