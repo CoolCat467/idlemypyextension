@@ -35,7 +35,7 @@ keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
     "mypy~=1.15.0",
     'orjson; implementation_name == "cpython"',
-    "trio~=0.28.0",
+    "trio>=0.28,<0.30",
 ]
 
 [tool.setuptools.dynamic]
