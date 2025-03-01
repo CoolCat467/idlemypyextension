@@ -107,6 +107,8 @@ class Separator(Operator):
 class EndSeparator(Separator):
     """End separator that does not need extra space."""
 
+    __slots__ = ()
+
 
 class Colin(Separator):
     """Colin ':'."""
@@ -160,7 +162,7 @@ class End(Token):
         super().__init__()
 
 
-TOKENIZE_PATTERN = re.compile(r"[-\w`]+(\s*(\.|:)\s*[-/\w]*)*")
+TOKENIZE_PATTERN: Final = re.compile(r"[-\w`]+(\s*(\.|:)\s*[-/\w]*)*")
 
 
 def tokenize(txt: str) -> list[Token]:
@@ -358,13 +360,11 @@ def tokenize_definition(
                 if tokens and isinstance(tokens[-1], ArgumentDefault):
                     assert tokens[-1].text is not None
                     last = tokens[-1].text.rstrip()[-1]
+                    previous = tokens.pop().text
+                    assert previous is not None
                     if last in {"+", "-"}:
-                        previous = tokens.pop().text
-                        assert previous is not None
                         tokens.append(ArgumentDefault(f"{previous} {string}"))
                     else:
-                        previous = tokens.pop().text
-                        assert previous is not None
                         tokens.append(ArgumentDefault(previous + string))
                 else:
                     tokens.append(ArgumentDefault(string))
@@ -598,8 +598,8 @@ class Parser:
         """Parse comma separated type list."""
         types = []
         while self.lookup() not in (")", "]"):
-            typ = self.parse_type()
-            types.append(typ)
+            type_ = self.parse_type()
+            types.append(type_)
             string = self.lookup()
             if string == ",":
                 self.expect(",")
@@ -616,16 +616,16 @@ class Parser:
         # 2 -> set
         which = 0
         while self.lookup() != "}":
-            typ = self.parse_type()
+            type_ = self.parse_type()
             if which == 0:
                 which = 1 if self.lookup() == ":" else 2
             if which == 1:  # dict
                 self.expect(":")
                 types.append(
-                    TypeValue("__hacks_DictItem", (typ, self.parse_type())),
+                    TypeValue("__hacks_DictItem", (type_, self.parse_type())),
                 )
             if which == 2:  # set
-                types.append(typ)
+                types.append(type_)
             if self.lookup() == ",":
                 self.expect(",")
                 continue
@@ -648,8 +648,8 @@ class Parser:
         """Parse | separated union list."""
         types = []
         while True:
-            typ = self.parse_single()
-            types.append(typ)
+            type_ = self.parse_single()
+            types.append(type_)
             if self.lookup() != "|":
                 return types
             self.expect("|")
