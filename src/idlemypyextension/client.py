@@ -42,7 +42,6 @@ __license__ = "MIT"
 
 import base64
 import contextlib
-import io
 import json
 import os
 import sys
@@ -64,6 +63,7 @@ with guard_imports({"trio", "mypy"}):
     from mypy.version import __version__
 
 if TYPE_CHECKING:
+    import io
     from collections.abc import Sequence
 
     from typing_extensions import NotRequired
