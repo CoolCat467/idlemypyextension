@@ -232,7 +232,7 @@ def _tk_destroy(self: Tk) -> None:
 def _check_events(tk: Tk) -> None:
     """Check events in the queue on a given Tk instance."""
     used = False
-    tk_obj = cast(_Tk, tk.tk)
+    tk_obj = cast("_Tk", tk.tk)
     try:
         # Process all enqueued events, then exit.
         while True:

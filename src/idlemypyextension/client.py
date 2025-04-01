@@ -42,7 +42,6 @@ __license__ = "MIT"
 
 import base64
 import contextlib
-import io
 import json
 import os
 import sys
@@ -64,6 +63,7 @@ with guard_imports({"trio", "mypy"}):
     from mypy.version import __version__
 
 if TYPE_CHECKING:
+    import io
     from collections.abc import Sequence
 
     from typing_extensions import NotRequired
@@ -175,7 +175,7 @@ def _read_request_response_json(request_response: str | bytes) -> Response:
         return {"error": "Data received is not valid JSON"}
     if not isinstance(data, dict):
         return {"error": f"Data received is not a dict (got {type(data)})"}
-    return cast(Response, data)
+    return cast("Response", data)
 
 
 async def _request_win32(
@@ -201,7 +201,7 @@ async def _request_win32(
     try:
         all_responses: list[Response] = []
         with _IPCClient(name, timeout) as client:
-            async_client = trio.wrap_file(cast(io.StringIO, client))
+            async_client = trio.wrap_file(cast("io.StringIO", client))
             await async_client.write(request_arguments)
 
             final = False
@@ -211,7 +211,7 @@ async def _request_win32(
                 all_responses.append(response)
         if len(all_responses) > 1:
             debug(f"request win32 {all_responses = }")
-        return cast(Response, dict(ChainMap(*all_responses).items()))  # type: ignore[arg-type]
+        return cast("Response", dict(ChainMap(*all_responses).items()))  # type: ignore[arg-type]
     except (OSError, _IPCException, ValueError) as err:
         return {"error": str(err)}
 
@@ -269,7 +269,7 @@ async def _request_linux(
             all_responses.append(response)
     if len(all_responses) > 1:
         debug(f"request linux {all_responses = }")
-    return cast(Response, dict(ChainMap(*all_responses).items()))  # type: ignore[arg-type]
+    return cast("Response", dict(ChainMap(*all_responses).items()))  # type: ignore[arg-type]
 
 
 REQUEST_LOCK = trio.Lock()
