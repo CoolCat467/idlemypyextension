@@ -24,9 +24,9 @@ repos:
     hooks:
       - id: black
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.8
+    rev: v0.11.10
     hooks:
-      - id: ruff
+      - id: ruff-check
         types: [file]
         types_or: [python, pyi, toml]
         args: ["--show-fixes"]
@@ -45,6 +45,6 @@ repos:
     hooks:
       - id: typos
   - repo: https://github.com/woodruffw/zizmor-pre-commit
-    rev: v1.6.0
+    rev: v1.7.0
     hooks:
       - id: zizmor
