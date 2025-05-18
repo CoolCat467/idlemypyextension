@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 # IDLE Mypy daemon integration extension
-# Copyright (C) 2023-2024  CoolCat467
+# Copyright (C) 2023-2025  CoolCat467
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -49,8 +49,19 @@ UNKNOWN_FILE: Final = "<unknown file>"
 
 def debug(message: object) -> None:
     """Print debug message."""
-    # TODO: Censor username/user files
-    print(f"\n[{__title__}] DEBUG: {message}")
+    # Censor username/user files
+    as_str = str(message)
+
+    ##username = os.getlogin()
+    ##home_directory = os.path.expanduser("~")
+    ##
+    ##as_str = as_str.replace(home_directory, "~")
+    ##as_str = as_str.replace(username, "<username>")
+
+    print(f"\n[{__title__}] DEBUG: {as_str}")
+
+
+MYPY_ERROR_TYPE: Final = re.compile(r"  \[[a-z\-]+\]\s*$")
 
 
 def parse_comments(
@@ -59,8 +70,6 @@ def parse_comments(
     default_line: int = 0,
 ) -> dict[str, list[utils.Comment]]:
     """Parse mypy output, return mapping of filenames to lists of comments."""
-    error_type = re.compile(r"  \[[a-z\-]+\]\s*$")
-
     files: dict[str, list[utils.Comment]] = {}
     for output_line in mypy_output.splitlines():
         if not output_line.strip():
@@ -92,7 +101,7 @@ def parse_comments(
                     col_end = int(position[4])
                 else:
                     line_end = line
-        comment_type = error_type.search(text)
+        comment_type = MYPY_ERROR_TYPE.search(text)
         if comment_type is not None:
             text = text[: comment_type.start()]
             msg_type = f"{comment_type.group(0)[3:-1]} {msg_type}"
@@ -409,6 +418,24 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
     async def ensure_daemon_running(self) -> bool:
         """Make sure daemon is running. Return False if cannot continue."""
         if not client.is_running(self.status_file):
+            command = " ".join(
+                x
+                for x in [
+                    "dmypy",
+                    f'--status-file="{self.status_file}"',
+                    "start",
+                    f'--log-file="{self.log_file}"',
+                    (
+                        f"--timeout={self.daemon_timeout}"
+                        if self.daemon_timeout
+                        else ""
+                    ),
+                    "--",
+                    *self.flags,
+                ]
+                if x
+            )
+            debug(f"{command = }")
             return await client.start(
                 self.status_file,
                 flags=self.flags,
@@ -428,6 +455,8 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             return "break"
 
         # Only stop if running
+        command = f'dmypy --status-file="{self.status_file}" stop'
+        debug(f"{command = }")
         response = await client.stop(self.status_file)
         if response.get("err") or response.get("error"):
             # Kill
@@ -441,35 +470,43 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             return client.Response(
                 {"out": "", "err": "Error: Could not start mypy daemon"},
             )
-        flags = self.flags
-        flags += [file]
-        # debug(f"check {flags = }")
-        command = " ".join(
-            x
-            for x in [
-                "dmypy",
-                f'--status-file="{self.status_file}"',
-                "run",
-                (
-                    f"--timeout={self.action_timeout}"
-                    if self.action_timeout
-                    else ""
-                ),
-                f'--log-file="{self.log_file}"',
-                "--export-types",
-                f'"{file}"',
-                "--",
-                *self.flags,
-            ]
-            if x
-        )
+        ##flags = self.flags
+        ##flags += [file]
+        ### debug(f"check {flags = }")
+        ##command = " ".join(
+        ##    x
+        ##    for x in [
+        ##        "dmypy",
+        ##        f'--status-file="{self.status_file}"',
+        ##        "run",
+        ##        (
+        ##            f"--timeout={self.action_timeout}"
+        ##            if self.action_timeout
+        ##            else ""
+        ##        ),
+        ##        f'--log-file="{self.log_file}"',
+        ##        "--export-types",
+        ##        f'"{file}"',
+        ##        "--",
+        ##        *self.flags,
+        ##    ]
+        ##    if x
+        ##)
+        ##debug(f"{command = }")
+        ##return await client.run(
+        ##    self.status_file,
+        ##    flags=flags,
+        ##    timeout=self.action_timeout,
+        ##    daemon_timeout=self.daemon_timeout,
+        ##    log_file=self.log_file,
+        ##    export_types=True,
+        ##)
+        command = f'dmypy --status-file="{self.status_file}" check --export-types "{file}"'
         debug(f"{command = }")
-        return await client.run(
+        return await client.check(
             self.status_file,
-            flags=flags,
+            files=[file],
             timeout=self.action_timeout,
-            daemon_timeout=self.daemon_timeout,
-            log_file=self.log_file,
             export_types=True,
         )
 
