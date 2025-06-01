@@ -33,7 +33,7 @@ classifiers = [
 ]
 keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
-    "mypy~=1.15.0",
+    "mypy~=1.16.0",
     'orjson; implementation_name == "cpython"',
     "trio~=0.30.0",
 ]
