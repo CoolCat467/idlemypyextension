@@ -565,6 +565,9 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
                 {"err": "Error: Could not start mypy daemon"},
             )
         else:
+            # Remove drive letter colon in windows
+            if sys.platform == "win32":
+                file = "".join(file.split(":", 1))
             function = f"{file}:{line}"
 
             command = " ".join(
