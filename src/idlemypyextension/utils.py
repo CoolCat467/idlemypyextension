@@ -243,6 +243,16 @@ def get_line_indent(text: str, char: str = " ") -> int:
     return index + 1
 
 
+def get_line_indent_handle_tabs(text: str) -> tuple[bool, int]:
+    """Return if uses tabs and associated indentation level."""
+    uses_tabs = text.startswith("\t")
+    if uses_tabs:
+        indent = get_line_indent(text, "\t")
+    else:
+        indent = get_line_indent(text)
+    return uses_tabs, indent
+
+
 def ensure_section_exists(section: str) -> bool:
     """Ensure section exists in user extensions configuration.
 
@@ -518,9 +528,24 @@ class BaseExtension:
     ) -> tuple[bool, str]:
         """Return if line uses tabs and line using spaces."""
         chars = self.get_line(line, text_win)
-        if "\t" in chars:
+        if chars.startswith("\t"):
             return True, chars.replace("\t", self.get_tabwidth_indent_spaces())
         return False, chars
+
+    def reinstate_line_tabs(self, line: str) -> str:
+        """Return line with leading indent replaced with tabs."""
+        indent = get_line_indent(line)
+        indent_text = line[:indent]
+        post_indent = line[indent:]
+        return (
+            indent_text.replace(self.get_tabwidth_indent_spaces(), "\t")
+            + post_indent
+        )
+
+    def reinstate_char_tabs(self, chars: str) -> str:
+        """Return potentially multiline string with indentation replaced with tabs."""
+        lines = chars.splitlines(keepends=True)
+        return "".join(map(self.reinstate_line_tabs, lines))
 
     def get_comment_line(self, indent: int, content: str) -> str:
         """Return comment line given indent and content."""
@@ -582,7 +607,7 @@ class BaseExtension:
         # Add comment line
         chars = self.get_comment_line(indent, msg) + "\n" + chars
         if uses_tabs:
-            chars = chars.replace(self.get_tabwidth_indent_spaces(), "\t")
+            chars = self.reinstate_char_tabs(chars)
 
         # Save changes
         start, end = get_line_selection(line)
@@ -603,8 +628,8 @@ class BaseExtension:
         file = comments[0].file
 
         # Figure out next line intent
-        uses_tabs, next_line_text = self.get_line_replace_tabs(line + 1)
-        indent = get_line_indent(next_line_text)
+        next_line_text = self.get_line(line + 1)
+        _uses_tabs, indent = get_line_indent_handle_tabs(next_line_text)
 
         lastcol = len(self.get_comment_line(indent, ""))
 
@@ -632,12 +657,6 @@ class BaseExtension:
 
         if not new_line.strip():
             return None
-
-        if uses_tabs:
-            new_line = new_line.replace(
-                self.get_tabwidth_indent_spaces(),
-                "\t",
-            )
 
         return Comment(file=file, line=line + 1, contents=new_line)
 
