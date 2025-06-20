@@ -639,8 +639,7 @@ class Parser:
             return self.parse_type_list()
         if start_collection == "{":
             return self.parse_type_dict_or_set()
-        # Fail is a NoReturn, making RET503 irrelevant
-        self.fail(  # pragma: nocover  # noqa: RET503
+        return self.fail(  # pragma: nocover
             "Unhandled collection start: {start_collection!r}",
         )
 
@@ -951,9 +950,11 @@ def get_annotation(
 
     # Handle the end
     if isinstance(parser.peek(), EndDefinition | End):
-        parser.tokens = (
-            [ReturnTypeDef("->")] + return_tokens[:-1] + parser.rest_tokens()
-        )
+        parser.tokens = [
+            ReturnTypeDef("->"),
+            *return_tokens[:-1],
+            *parser.rest_tokens(),
+        ]
         parser.i = 0
     # debug(f'{parser.rest_tokens() = }')
     parser.expect("->")

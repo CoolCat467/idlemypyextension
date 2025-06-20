@@ -496,6 +496,10 @@ class BaseExtension:
                 )
                 setattr(cls, key, value)
 
+    def get_tabwidth_indent_spaces(self) -> str:
+        """Return tabwidth indent as spaces."""
+        return " " * self.editwin.get_tk_tabwidth()
+
     def get_line(
         self,
         line: int,
@@ -506,6 +510,17 @@ class BaseExtension:
             text_win = self.text
         chars: str = text_win.get(*get_line_selection(line))
         return chars
+
+    def get_line_replace_tabs(
+        self,
+        line: int,
+        text_win: Text | None = None,
+    ) -> tuple[bool, str]:
+        """Return if line uses tabs and line using spaces."""
+        chars = self.get_line(line, text_win)
+        if "\t" in chars:
+            return True, chars.replace("\t", self.get_tabwidth_indent_spaces())
+        return False, chars
 
     def get_comment_line(self, indent: int, content: str) -> str:
         """Return comment line given indent and content."""
@@ -559,13 +574,15 @@ class BaseExtension:
                 return False
 
         # Get line checker is talking about
-        chars = self.get_line(line, editwin.text)
+        uses_tabs, chars = self.get_line_replace_tabs(line, editwin.text)
 
         # Figure out line indent
         indent = get_line_indent(chars)
 
         # Add comment line
         chars = self.get_comment_line(indent, msg) + "\n" + chars
+        if uses_tabs:
+            chars = chars.replace(self.get_tabwidth_indent_spaces(), "\t")
 
         # Save changes
         start, end = get_line_selection(line)
@@ -586,7 +603,7 @@ class BaseExtension:
         file = comments[0].file
 
         # Figure out next line intent
-        next_line_text = self.get_line(line + 1)
+        uses_tabs, next_line_text = self.get_line_replace_tabs(line + 1)
         indent = get_line_indent(next_line_text)
 
         lastcol = len(self.get_comment_line(indent, ""))
@@ -615,6 +632,12 @@ class BaseExtension:
 
         if not new_line.strip():
             return None
+
+        if uses_tabs:
+            new_line = new_line.replace(
+                self.get_tabwidth_indent_spaces(),
+                "\t",
+            )
 
         return Comment(file=file, line=line + 1, contents=new_line)
 

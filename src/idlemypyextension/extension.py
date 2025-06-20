@@ -86,9 +86,13 @@ def parse_comments(
         else:
             where, msg_type, text = output_line.split(": ", 2)
 
+            windows_drive_letter = ""
+            if sys.platform == "win32":
+                windows_drive_letter, where = where.split(":", 1)
+                windows_drive_letter += ":"
             position = where.split(":", 4)
 
-            filename = position[0]
+            filename = f"{windows_drive_letter}{position[0]}"
             if len(position) > 1:
                 line = int(position[1])
                 line_end = line
@@ -269,7 +273,6 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
     def add_type_comments_for_file(
         self,
-        target_filename: str,
         comments: list[utils.Comment],
     ) -> dict[str, list[int]]:
         """Add type comments for target files.
@@ -358,7 +361,6 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             if target_filename == UNKNOWN_FILE:
                 continue
             file_comments = self.add_type_comments_for_file(
-                target_filename,
                 files[target_filename],
             )
             file_commented_lines.update(file_comments)
