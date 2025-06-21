@@ -61,8 +61,8 @@ def extended_linecache_checkcache(
 class PyShellEditorWindow(EditorWindow):
     breakpoints: list[int]
     breakpointPath: str
-    flist: PyShellFileList
-    root: Tk
+    flist: PyShellFileList  # type: ignore[mutable-override]
+    root: Tk  # type: ignore[mutable-override]
     def __init__(self, *args: PyShellFileList | Tk | str | None) -> None: ...
     rmenu_specs: list[tuple[str | None, str | None, str | None]]
     def color_breakpoint_text(self, color: bool = ...) -> None: ...
@@ -173,10 +173,10 @@ class PyShell(OutputWindow):
     menu_specs: list[tuple[str, str]]
     rmenu_specs: list[tuple[str, str]]  # type: ignore[assignment]
     allow_line_numbers: bool
-    user_input_insert_tags: str
+    user_input_insert_tags: str  # type: ignore[mutable-override]
     interp: ModifiedInterpreter
-    root: Tk
-    flist: PyShellFileList
+    root: Tk  # type: ignore[mutable-override]
+    flist: PyShellFileList  # type: ignore[mutable-override]
     shell_sidebar: ShellSidebar
     usetabs: bool
     indentwidth: int

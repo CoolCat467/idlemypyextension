@@ -86,7 +86,7 @@ class StdioFile(io.TextIOBase):
     @property
     def encoding(self) -> str: ...  # type: ignore[override]
     @property
-    def errors(self) -> str: ...  # type: ignore[override]
+    def errors(self) -> str: ...  # type: ignore[override,mutable-override]
     @property
     def name(self) -> str: ...
     def isatty(self) -> bool: ...

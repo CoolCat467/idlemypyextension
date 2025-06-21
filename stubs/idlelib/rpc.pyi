@@ -14,7 +14,7 @@ def pickle_code(
 def dumps(obj: str, protocol: int | None = ...) -> str: ...
 
 class CodePickler(pickle.Pickler):
-    dispatch_table: dict[
+    dispatch_table: dict[  # type: ignore[mutable-override]
         type,
         Callable[[type], tuple[Callable[[bytes], type], tuple[bytes]]],
     ]

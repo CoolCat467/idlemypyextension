@@ -62,7 +62,7 @@ class InsertCommand(Command):
         tags: str | None = ...,
     ) -> None: ...
     marks_before: dict[str, str]
-    index1: str
+    index1: str  # type: ignore[mutable-override]
     index2: str | None
     marks_after: dict[str, str]
     def do(self, text: Text) -> None: ...

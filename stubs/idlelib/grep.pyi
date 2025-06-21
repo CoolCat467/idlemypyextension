@@ -17,7 +17,7 @@ def findfiles(folder: str, pattern: str, recursive: bool) -> None: ...
 class GrepDialog(SearchDialogBase):
     title: str
     icon: str
-    needwrapbutton: int
+    needwrapbutton: bool
     flist: FileList
     globvar: StringVar
     recvar: BooleanVar
@@ -27,12 +27,12 @@ class GrepDialog(SearchDialogBase):
         engine: searchengine.SearchEngine,
         flist: FileList,
     ) -> None: ...
-    def open(
+    def open(  # type: ignore[override]
         self,
         text: Text,
         searchphrase: str | None,
         io: IOBinding | None = ...,
-    ) -> None: ...  # type: ignore[override]
+    ) -> None: ...
     globent: Entry
     def create_entries(self) -> None: ...
     def create_other_buttons(self) -> None: ...  # type: ignore[override]
