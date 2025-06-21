@@ -27,7 +27,12 @@ class GrepDialog(SearchDialogBase):
         engine: searchengine.SearchEngine,
         flist: FileList,
     ) -> None: ...
-    def open(self, text: Text, searchphrase: str | None, io: IOBinding | None = ...) -> None: ...  # type: ignore[override]
+    def open(
+        self,
+        text: Text,
+        searchphrase: str | None,
+        io: IOBinding | None = ...,
+    ) -> None: ...  # type: ignore[override]
     globent: Entry
     def create_entries(self) -> None: ...
     def create_other_buttons(self) -> None: ...  # type: ignore[override]

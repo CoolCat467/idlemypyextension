@@ -16,7 +16,7 @@ from typing import Any
 class SearchDialogBase:
     title: str
     icon: str
-    needwrapbutton: int
+    needwrapbutton: bool
     root: Tk
     bell: Callable[[], None]
     engine: SearchEngine

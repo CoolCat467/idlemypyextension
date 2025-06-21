@@ -42,7 +42,7 @@ dependencies = [
 version = {attr = "idlemypyextension.__init__.__version__"}
 
 [project.optional-dependencies]
-user = ["idleuserextend~=0.0.1"]
+user = ["idleuserextend~=0.0.2"]
 tests = [
     "pytest>=5.0",
     "pytest-cov>=6.0.0",
@@ -55,6 +55,7 @@ tools = [
     "ruff>=0.9.2",
     "codespell>=2.3.0",
     "pre-commit>=4.2.0",
+    "attrs>=25.3.0",
 ]
 
 [project.urls]
@@ -73,6 +74,7 @@ package = true
 [tool.mypy]
 files = ["src/idlemypyextension/",]
 mypy_path = "stubs"
+enable_error_code = ["truthy-bool", "mutable-override"]
 show_column_numbers = true
 show_error_codes = true
 show_traceback = true

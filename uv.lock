@@ -229,6 +229,7 @@ tests = [
     { name = "uv" },
 ]
 tools = [
+    { name = "attrs" },
     { name = "black", marker = "implementation_name == 'cpython'" },
     { name = "codespell" },
     { name = "pre-commit" },
@@ -240,10 +241,11 @@ user = [
 
 [package.metadata]
 requires-dist = [
+    { name = "attrs", marker = "extra == 'tools'", specifier = ">=25.3.0" },
     { name = "black", marker = "implementation_name == 'cpython' and extra == 'tools'", specifier = ">=24.10.0" },
     { name = "codespell", marker = "extra == 'tools'", specifier = ">=2.3.0" },
     { name = "coverage", marker = "extra == 'tests'", specifier = ">=7.2.5" },
-    { name = "idleuserextend", marker = "extra == 'user'", specifier = "~=0.0.1" },
+    { name = "idleuserextend", marker = "extra == 'user'", specifier = "~=0.0.2" },
     { name = "mypy", extras = ["dmypy"], specifier = "~=1.16.1" },
     { name = "orjson", marker = "implementation_name == 'cpython'" },
     { name = "pre-commit", marker = "extra == 'tools'", specifier = ">=4.2.0" },
