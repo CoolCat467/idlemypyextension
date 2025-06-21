@@ -221,6 +221,8 @@ async def _request_linux(
     request_arguments: str,
     timeout: float | None = None,  # noqa: ASYNC109
 ) -> Response:
+    """Request from daemon on linux/unix."""
+
     def find_frame_in_buffer(
         buffer: bytearray,
     ) -> tuple[bytearray, bytearray | None]:
