@@ -851,9 +851,9 @@ def get_annotation(
         if token.text == ")":
             parser.back()
             break
-        assert (
-            token.text is not None
-        ), "Unreachable, End token is the only null text token"
+        assert token.text is not None, (
+            "Unreachable, End token is the only null text token"
+        )
         new_lines += token.text
         if isinstance(token, Keyword):
             new_lines += " "

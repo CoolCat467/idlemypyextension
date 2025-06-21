@@ -157,9 +157,7 @@ class ModifiedInterpreter(InteractiveInterpreter):
     def runcommand(
         self,
         code: str,
-    ) -> (
-        bool
-    ): ...  # Actually returns int object but that is a hack because of int truthyness
+    ) -> bool: ...  # Actually returns int object but that is a hack because of int truthyness
     def runcode(self, code: CodeType) -> None: ...
     def write(self, s: str) -> int: ...  # type: ignore[override]
     def display_port_binding_error(self) -> None: ...

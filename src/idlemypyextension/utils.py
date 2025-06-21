@@ -154,7 +154,7 @@ def check_installed(
 
 def get_line_selection(line: int, length: int = 1) -> tuple[str, str]:
     """Get selection strings for given line(s)."""
-    return f"{line}.0", f"{line+length}.0"
+    return f"{line}.0", f"{line + length}.0"
 
 
 # Stolen from idlelib.searchengine

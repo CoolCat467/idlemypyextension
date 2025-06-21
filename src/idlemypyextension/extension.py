@@ -598,7 +598,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         if response.get("stderr"):
             if errors:
                 errors += "\n\n"
-            errors += f'stderr:\n{response["stderr"]}'
+            errors += f"stderr:\n{response['stderr']}"
         if "out" not in response and not errors:
             errors += "No response from dmypy daemon."
 
