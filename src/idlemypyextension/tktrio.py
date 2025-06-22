@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 # TKTrio - Run Trio on top of Tkinter.
-# Copyright (C) 2023  CoolCat467
+# Copyright (C) 2023-2025  CoolCat467
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -26,7 +26,9 @@ __license__ = "GNU General Public License Version 3"
 __version__ = "0.1.0"
 
 import contextlib
+import queue
 import sys
+import threading
 import tkinter as tk
 import weakref
 from enum import IntEnum, auto
@@ -35,7 +37,7 @@ from tkinter import messagebox
 from traceback import format_exception
 from typing import TYPE_CHECKING, Any, TypeGuard
 
-from idlemypyextension import mttkinter, utils
+from idlemypyextension import utils
 from idlemypyextension.moduleguard import guard_imports
 
 with guard_imports({"trio", "exceptiongroup"}):
@@ -53,14 +55,15 @@ if TYPE_CHECKING:
     PosArgT = TypeVarTuple("PosArgT")
 
 
-# Use mttkinter somewhere so pycln doesn't eat it
-assert mttkinter.TRUE
-
-
 def debug(message: object) -> None:  # pragma: nocover
     """Print debug message."""
     # TODO: Censor username/user files
     print(f"\n[{__title__}] DEBUG: {message}")
+
+
+def check_main_thread() -> bool:
+    """Return if this function is being run from main thread."""
+    return threading.current_thread() is threading.main_thread()
 
 
 def install_protocol_override(
@@ -140,6 +143,90 @@ def is_tk_wm_and_misc_subclass(
     return isinstance(val, tk.Toplevel | tk.Tk)
 
 
+class ThreadRunner:
+    """Thread runner."""
+
+    __slots__ = ("check_period", "run_queue", "running")
+
+    def __init__(self, check_period: int = 30) -> None:
+        """Initialize thread runner."""
+        self.running = False
+        self.check_period = check_period
+
+        self.run_queue: queue.Queue[
+            tuple[
+                Callable[[], Any],
+                queue.Queue[
+                    tuple[
+                        bool,
+                        Exception | None,
+                    ]
+                ],
+            ]
+        ] = queue.Queue(1)
+
+    def check_events(self, tk: tk.Toplevel | tk.Tk) -> None:
+        """Check for events to process."""
+        not_empty = False
+        while self.running:
+            try:
+                function, response_queue = self.run_queue.get_nowait()
+            except queue.Empty:
+                break
+            else:
+                not_empty = True
+            try:
+                function()
+            except Exception as exc:
+                response_queue.put((True, exc))
+            else:
+                response_queue.put((False, None))
+        # Schedule to check again. If we just processed an event, check
+        # immediately; if we didn't, check later.
+        if not_empty:
+            tk.after_idle(self.check_events, tk)
+        elif self.running:
+            tk.after(self.check_period, self.check_events, tk)
+
+    def start_run(self, tk: tk.Toplevel | tk.Tk) -> None:
+        """Start checking for events in this thread."""
+        if self.running:
+            raise RuntimeError("Already running from somewhere else!")
+        self.running = True
+        tk.after_idle(self.check_events, tk)
+
+    def stop_run(self) -> None:
+        """Stop running."""
+        self.running = False
+
+    def get_running(self) -> bool:
+        """Return if is running."""
+        return self.running
+
+    def __call__(self, function: Callable[[], Any]) -> None:
+        """Call a function using run in different thread."""
+        if not self.running:
+            raise RuntimeError("Not running")
+        response_queue: queue.Queue[
+            tuple[
+                bool,
+                Exception | None,
+            ]
+        ] = queue.Queue(1)
+        self.run_queue.put(
+            (
+                function,
+                response_queue,
+            ),
+            True,
+            2,
+        )
+        is_exception, maybe_exc = response_queue.get(True, None)
+        if is_exception:
+            assert maybe_exc is not None
+            raise maybe_exc
+
+
 class TkTrioRunner:
     """Tk Trio Runner - Run Trio on top of Tkinter's main loop."""
 
@@ -151,22 +238,29 @@ class TkTrioRunner:
         "received_loop_close_request",
         "root",
         "run_status",
+        "thread_runner",
     )
 
     def __new__(
         cls,
         root: tk.Toplevel | tk.Tk,
+        hold_global_object: object | None,
         *args: Any,
         **kwargs: Any,
     ) -> Self:
         """Either return new instance or get existing runner from root."""
         if not is_tk_wm_and_misc_subclass(root):
             raise ValueError("Must be subclass of both tk.Misc and tk.Wm")
-        ref = getattr(root, "__trio__", None)
+        if hold_global_object is None:
+            hold_global_object = root
+        ref = getattr(hold_global_object, "__trio__", None)
 
         if ref is not None:
             instance = ref()
             if instance is not None:
+                print(
+                    f"[{__title__}]: {cls.__name__}: Loaded instance from hold_global_object",
+                )
                 if TYPE_CHECKING:
                     assert isinstance(instance, cls)
                 assert instance.__class__.__name__ == cls.__name__
@@ -176,12 +270,16 @@ class TkTrioRunner:
     def __init__(
         self,
         root: tk.Toplevel | tk.Tk,
+        hold_global_object: object | None = None,
         restore_close: Callable[[], Any] | None = None,
     ) -> None:
         """Initialize trio runner."""
+        if hold_global_object is None:
+            hold_global_object = root
         if (
-            hasattr(root, "__trio__")
-            and getattr(root, "__trio__", lambda: None)() is self
+            hasattr(hold_global_object, "__trio__")
+            and getattr(hold_global_object, "__trio__", lambda: None)()
+            is not None
         ):
             return
         self.root = root
@@ -193,17 +291,18 @@ class TkTrioRunner:
         self.installed_proto_override = False
 
         with contextlib.suppress(AttributeError):
-            root.__trio__ = weakref.ref(self)  # type: ignore[union-attr]
+            hold_global_object.__trio__ = weakref.ref(self)  # type: ignore[attr-defined]
+
+        self.thread_runner = ThreadRunner()
 
     def schedule_task_threadsafe(
         self,
-        function: Callable[[Unpack[PosArgT]], object],
-        *args: Unpack[PosArgT],
+        function: Callable[[], object],
     ) -> None:
         """Schedule task in Tkinter's event loop."""
         try:
-            self.root.after_idle(function, *args)
-        except RuntimeError as exc:
+            self.thread_runner(function)
+        except Exception as exc:
             debug(f"Exception scheduling task {function = }")
             # probably "main thread is not in main loop" error
             # mtTkinter is supposed to fix this sort of issue
@@ -211,17 +310,19 @@ class TkTrioRunner:
 
             self.cancel_current_task()
 
-    ##    def schedule_task_not_threadsafe(self, function: Callable[..., Any], *args: Any) -> None:
-    ##        """Schedule task in Tkinter's event loop."""
-    ##        try:
-    ##            self.root.after_idle(function, *args)
-    ##        except RuntimeError as exc:
-    ##            debug(f"Exception scheduling task {function = }")
-    ##            # probably "main thread is not in main loop" error
-    ##            # mtTkinter is supposed to fix this sort of issue
-    ##            print_exception(exc)
-    ##
-    ##            self.cancel_current_task()
+    def schedule_task_not_threadsafe(
+        self,
+        function: Callable[[Unpack[PosArgT]], object],
+        *args: Unpack[PosArgT],
+    ) -> None:
+        """Schedule task in Tkinter's event loop."""
+        try:
+            self.root.after_idle(function, *args)
+        except Exception as exc:
+            debug(f"Exception scheduling task {function = }")
+            utils.extension_log_exception(exc)
+
+            self.cancel_current_task()
 
     def cancel_current_task(self) -> None:
         """Cancel current task if one is running."""
@@ -231,7 +332,7 @@ class TkTrioRunner:
 
         if self.run_status == RunStatus.TRIO_STARTING:
             # Reschedule close for later, in process of starting.
-            self.schedule_task_threadsafe(self.cancel_current_task)
+            self.schedule_task_not_threadsafe(self.cancel_current_task)
             return
 
         if self.run_status == RunStatus.TRIO_RUNNING_CANCELING:
@@ -246,6 +347,10 @@ class TkTrioRunner:
             # because the exception that triggered this was from
             # a start group tick failing because of start_soon
             # not running from main thread because thread lock shenanigans
+
+            # Stop thread runner
+            self.thread_runner.stop_run()
+
             utils.extension_log_exception(exc)
 
             # We can't even show an error properly because of the same
@@ -261,6 +366,8 @@ class TkTrioRunner:
 
     def _done_callback(self, outcome: Outcome[None]) -> None:
         """Handle when trio is done running."""
+        # Stop thread runner
+        self.thread_runner.stop_run()
         assert self.run_status in {
             RunStatus.TRIO_RUNNING_CANCELED,
             RunStatus.TRIO_RUNNING,
@@ -301,12 +408,20 @@ class TkTrioRunner:
                 "Cannot run more than one trio instance at once.",
             )
 
+        if not check_main_thread():
+            raise RuntimeError("Need to start from main thread.")
+
+        # Start running thread runner from main thread
+        if not self.thread_runner.get_running():
+            self.thread_runner.start_run(self.root)
+
         self.run_status = RunStatus.TRIO_STARTING
 
         trio.lowlevel.start_guest_run(
             run_nursery,
             done_callback=done_callback,
             run_sync_soon_threadsafe=self.schedule_task_threadsafe,
+            run_sync_soon_not_threadsafe=self.schedule_task_not_threadsafe,
             host_uses_signal_set_wakeup_fd=False,
             restrict_keyboard_interrupt_to_checkpoints=True,
             strict_exception_groups=True,
@@ -336,7 +451,7 @@ class TkTrioRunner:
                 self.cancel_current_task()
             if self.run_status != RunStatus.NO_TASK:
                 # Rerun this function again in the future until no task running.
-                self.schedule_task_threadsafe(shutdown_then_call)
+                self.schedule_task_not_threadsafe(shutdown_then_call)
                 return None
             # No more tasks
             # Make sure to uninstall override or IDLE gets mad
@@ -424,12 +539,12 @@ class TkTrioRunner:
             ### Task run is in the process of stopping
             ### self.no_start_trio_is_stopping()
             # Reschedule starting task
-            self.schedule_task_threadsafe(self.__call__, function)
+            self.schedule_task_not_threadsafe(self.__call__, function)
             return None
 
         if self.run_status == RunStatus.TRIO_STARTING:
             # Reschedule starting task
-            self.schedule_task_threadsafe(self.__call__, function)
+            self.schedule_task_not_threadsafe(self.__call__, function)
             return None
 
         # If there is a task running
@@ -470,9 +585,9 @@ def run() -> None:
     root = tk.Tk()
 
     def trigger_trio_runs() -> None:
-        trio_run = TkTrioRunner(root)
+        trio_run = TkTrioRunner(root, None)
         trio_run(partial(trio_test_program, 0))
-        trio_run_2 = TkTrioRunner(root)
+        trio_run_2 = TkTrioRunner(root, None)
         trio_run_2(partial(trio_test_program, 1))
         trio_run_2(partial(trio_test_program, 2))
         trio_run(partial(trio_test_program, 3))

@@ -142,6 +142,9 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# Ruff
+.ruff_cache
+
 # Sphinx documentation
 doc/_build/
 

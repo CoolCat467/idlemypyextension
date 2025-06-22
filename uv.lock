@@ -197,7 +197,7 @@ requires-dist = [
     { name = "attrs", marker = "extra == 'tools'", specifier = ">=25.3.0" },
     { name = "codespell", marker = "extra == 'tools'", specifier = ">=2.3.0" },
     { name = "coverage", marker = "extra == 'tests'", specifier = ">=7.2.5" },
-    { name = "idleuserextend", marker = "extra == 'user'", specifier = "~=0.0.2" },
+    { name = "idleuserextend", marker = "extra == 'user'", specifier = "~=0.0.3" },
     { name = "mypy", extras = ["dmypy"], specifier = "~=1.16.1" },
     { name = "orjson", marker = "implementation_name == 'cpython'" },
     { name = "pre-commit", marker = "extra == 'tools'", specifier = ">=4.2.0" },
@@ -212,11 +212,11 @@ provides-extras = ["user", "tests", "tools"]
 
 [[package]]
 name = "idleuserextend"
-version = "0.0.2"
+version = "0.0.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f6/92/a2ca3d30cdaf31271576a34c94271254d75d8290eaadad3ced316fc50b1b/idleuserextend-0.0.2.tar.gz", hash = "sha256:e3a69301b99cbd4b663cd11e7736b8551c01fc2903a3a5d072cf1f6f5347256d", size = 45087, upload-time = "2024-08-22T03:55:34.509Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e0/ad/69787d718e1213aa6097aab28f23c36bf94ea576ff3490861d8c70b4a3df/idleuserextend-0.0.3.tar.gz", hash = "sha256:0f765924d02a4f40edd46144d5861a2f53e9b24e77d1832c061c0dbc1842d215", size = 46488, upload-time = "2025-06-22T05:35:55.06Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8d/55/7f3e0817eecc1d74cdd4090430e83630b0a95cfaef5abcf503dba078bc4b/idleuserextend-0.0.2-py3-none-any.whl", hash = "sha256:669fece2a5a395556a0c2f8b054f0f2a38458efbbd23f7c6df3f8a2f2d6635b6", size = 31490, upload-time = "2024-08-22T03:55:33.153Z" },
+    { url = "https://files.pythonhosted.org/packages/49/ad/baa502d35238276570b2bd748842848c1f668a8caf1e776642f2a35b0b31/idleuserextend-0.0.3-py3-none-any.whl", hash = "sha256:81744feed04b314fca2955a45ee1903b79be00d9f6ca8483b2685802f1f7bd20", size = 32770, upload-time = "2025-06-22T05:35:53.491Z" },
 ]
 
 [[package]]

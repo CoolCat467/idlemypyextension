@@ -33,9 +33,10 @@ import sys
 import traceback
 from functools import partial, wraps
 from idlelib.config import idleConf
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Final
 
-from idlemypyextension import annotate, client, mttkinter, tktrio, utils
+from idlemypyextension import annotate, client, tktrio, utils
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -169,6 +170,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         "suggest-signature": "<Alt-Key-s>",
         "remove-type-comments": "<Alt-Shift-Key-T>",
         "find-next-type-comment": "<Alt-Key-g>",
+        "shutdown-dmypy-daemon": None,
     }
 
     # Overwritten in reload
@@ -179,30 +181,32 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
     action_max_sec = "None"
 
     # Class attributes
-    idlerc_folder = os.path.expanduser(idleConf.userdir)
-    mypy_folder = os.path.join(idlerc_folder, "mypy")
-    status_file = os.path.join(mypy_folder, "dmypy.json")
-    log_file = os.path.join(mypy_folder, "log.txt")
+    idlerc_folder = Path(idleConf.userdir).expanduser().absolute()
+    mypy_folder = idlerc_folder / "mypy"
+    status_file = mypy_folder / "dmypy.json"
+    log_file = mypy_folder / "log.txt"
 
     def __init__(self, editwin: PyShellEditorWindow) -> None:
         """Initialize the settings for this extension."""
         super().__init__(editwin, comment_prefix="types")
 
-        if not os.path.exists(self.mypy_folder):
-            os.mkdir(self.mypy_folder)
+        if not self.mypy_folder.exists():
+            self.mypy_folder.mkdir(parents=True)
 
         self.triorun = tktrio.TkTrioRunner(
             self.editwin.top,
-            self.editwin.close,
+            self.flist,
+            restore_close=self.editwin.close,
         )
 
-        for attr_name in dir(self):
-            if attr_name.startswith("_"):
-                continue
-            if attr_name.endswith("_event_async"):
-                bind_name = "-".join(attr_name.split("_")[:-2]).lower()
-                self.text.bind(f"<<{bind_name}>>", self.get_async(attr_name))
-                # print(f'{attr_name} -> {bind_name}')
+    def __getattr__(self, attr_name: str) -> object:
+        """Transform event async sync calls to sync wrappers."""
+        if not attr_name.endswith("_event"):
+            return super.__getattr__(attr_name)
+        as_async = f"{attr_name}_async"
+        if not hasattr(self, as_async):
+            return super.__getattr__(attr_name)
+        return self.get_async(as_async)
 
     def get_async(
         self,
@@ -241,7 +245,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         try:
             return max(ACTION_TIMEOUT_MIN, int(self.action_max_sec))
         except ValueError:
-            return max(ACTION_TIMEOUT_MIN, int(self.values["action_max_sec"]))
+            return None
 
     @property
     def flags(self) -> list[str]:
@@ -260,7 +264,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         if self.daemon_flags == "None":
             return list(base)
         extra = set()
-        for arg in self.daemon_flags.split(" "):
+        for arg in self.daemon_flags.split():
             value = arg.strip()
             if value:
                 extra.add(value)
@@ -806,21 +810,18 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
     def unregister_async_events(self) -> None:
         """Unregister asynchronous event handlers."""
-        for attr_name in dir(self):
-            if attr_name.startswith("_"):
-                continue
-            if attr_name.endswith("_event_async"):
-                bind_name = "-".join(attr_name.split("_")[:-2]).lower()
+        for bind_name in self.bind_defaults:
+            attr_name = bind_name.replace("-", "_") + "_event_async"
+            if hasattr(self, attr_name):
                 self.text.event_delete(f"<<{bind_name}>>")
 
     @utils.log_exceptions
-    def close(self) -> None:
+    def on_reload(self) -> None:
         """Extension cleanup before IDLE window closes."""
         # Wrapped in try except so failure doesn't cause zombie windows.
         with contextlib.suppress(AttributeError):
             del self.triorun
         try:
-            mttkinter.restore()
             self.unregister_async_events()
         except Exception as exc:
             utils.extension_log_exception(exc)

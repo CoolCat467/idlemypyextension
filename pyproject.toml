@@ -42,7 +42,7 @@ dependencies = [
 version = {attr = "idlemypyextension.__init__.__version__"}
 
 [project.optional-dependencies]
-user = ["idleuserextend~=0.0.2"]
+user = ["idleuserextend~=0.0.3"]
 tests = [
     "pytest>=5.0",
     "pytest-cov>=6.0.0",

@@ -280,7 +280,7 @@ def ensure_values_exist_in_section(
             key,
             warn_on_default=False,
         )
-        if value is None:
+        if value is None and default is not None:
             idleConf.SetOption("extensions", section, key, default)
             need_save = True
     return need_save
@@ -448,6 +448,19 @@ class BaseExtension:
         if comment_prefix is None:
             comment_prefix = f"{self.__class__.__name__}"
         self.comment_prefix = f"# {comment_prefix}: "
+
+        # Bind non-keyboard triggered events, as IDLE only binds
+        # keyboard events automatically.
+        for bind_name, key in self.bind_defaults.items():
+            if key is not None:
+                continue
+            bind_func_name = bind_name.replace("-", "_") + "_event"
+            if not hasattr(self, bind_func_name):
+                raise ValueError(f"Missing function {bind_func_name}")
+            bind_func = getattr(self, bind_func_name)
+            if not callable(bind_func):
+                raise ValueError(f"{bind_func_name} should be callable")
+            self.text.bind(f"<<{bind_name}>>", bind_func)
 
     def __repr__(self) -> str:
         """Return representation of self."""
