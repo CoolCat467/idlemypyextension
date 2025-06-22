@@ -43,7 +43,6 @@ __license__ = "MIT"
 import base64
 import contextlib
 import json
-import os
 import sys
 from collections import ChainMap
 from typing import TYPE_CHECKING, TypedDict, cast
@@ -65,6 +64,7 @@ with guard_imports({"trio", "mypy"}):
 if TYPE_CHECKING:
     import io
     from collections.abc import Sequence
+    from pathlib import Path
 
     from typing_extensions import NotRequired
 
@@ -115,19 +115,30 @@ class BadStatusError(Exception):
 # Client-side infrastructure.
 
 
-def _read_status(status_file: str) -> dict[str, object]:
+def str_maintain_none(obj: str | object | None) -> str | None:
+    """Return string or None, maintaining None."""
+    if obj is None:
+        return None
+    return str(obj)
+
+
+async def _read_status(
+    status_file: str | Path | trio.Path,
+) -> dict[str, object]:
     """Read status file.
 
     Raise BadStatusError if the status file doesn't exist or contains
     invalid JSON or the JSON is not a dict.
     """
-    if not os.path.isfile(status_file):
+    path = trio.Path(status_file)
+    if not await path.is_file():
         raise BadStatusError("No status file found")
-    with open(status_file, encoding="utf-8") as file:
-        try:
-            data = json.load(file)
-        except Exception as ex:
-            raise BadStatusError("Malformed status file (not JSON)") from ex
+
+    contents = await path.read_text(encoding="utf-8")
+    try:
+        data = json.loads(contents)
+    except Exception as ex:
+        raise BadStatusError("Malformed status file (not JSON)") from ex
     if not isinstance(data, dict):
         raise BadStatusError("Invalid status file (not a dict)")
     return data
@@ -155,14 +166,14 @@ def _check_status(data: dict[str, object]) -> tuple[int, str]:
     return pid, connection_name
 
 
-def get_status(status_file: str) -> tuple[int, str]:
+async def get_status(status_file: str | Path | trio.Path) -> tuple[int, str]:
     """Read status file and check if the process is alive.
 
     Return (process id, connection_name) on success.
 
     Raise BadStatusError if something's wrong.
     """
-    data = _read_status(status_file)
+    data = await _read_status(status_file)
     return _check_status(data)
 
 
@@ -278,7 +289,7 @@ REQUEST_LOCK = trio.Lock()
 
 
 async def request(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     command: str,
     *,
     timeout: int | None = None,  # noqa: ASYNC109
@@ -303,7 +314,7 @@ async def request(
     args["is_tty"] = False
     args["terminal_width"] = 80
     request_arguments = json.dumps(args)
-    _, name = get_status(status_file)
+    _, name = await get_status(status_file)
 
     async with REQUEST_LOCK:
         if sys.platform == "win32" or FORCE_BASE_REQUEST:
@@ -316,22 +327,22 @@ async def request(
         )
 
 
-def is_running(status_file: str) -> bool:
+async def is_running(status_file: str | Path | trio.Path) -> bool:
     """Check if the server is running cleanly."""
     try:
-        get_status(status_file)
+        await get_status(status_file)
     except BadStatusError:
         return False
     return True
 
 
-async def stop(status_file: str) -> Response:
+async def stop(status_file: str | Path | trio.Path) -> Response:
     """Stop daemon via a 'stop' request."""
     return await request(status_file, "stop", timeout=5)
 
 
 async def _wait_for_server(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     timeout: float = 5.0,  # noqa: ASYNC109
 ) -> bool:
     """Wait until the server is up. Return False if timed out."""
@@ -339,7 +350,7 @@ async def _wait_for_server(
         with trio.fail_after(timeout):
             while True:
                 try:
-                    data = _read_status(status_file)
+                    data = await _read_status(status_file)
                 except BadStatusError:
                     # If the file isn't there yet, retry later.
                     await trio.sleep(0.1)
@@ -356,21 +367,21 @@ async def _wait_for_server(
 
 
 async def _start_server(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     *,
     flags: list[str],
     daemon_timeout: int | None = None,
     allow_sources: bool = False,
-    log_file: str | None = None,
+    log_file: str | Path | trio.Path | None = None,
 ) -> bool:
     """Start the server and wait for it. Return False if error starting."""
     start_options = _process_start_options(flags, allow_sources)
     if (
         _daemonize(
             start_options,
-            status_file,
+            str(status_file),
             timeout=daemon_timeout,
-            log_file=log_file,
+            log_file=str_maintain_none(log_file),
         )
         != 0
     ):
@@ -379,12 +390,12 @@ async def _start_server(
 
 
 async def restart(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     *,
     flags: list[str],
     daemon_timeout: int | None = 0,
     allow_sources: bool = False,
-    log_file: str | None = None,
+    log_file: str | Path | trio.Path | None = None,
 ) -> bool:
     """Restart daemon (it may or may not be running; but not hanging).
 
@@ -406,18 +417,18 @@ async def restart(
 
 
 async def start(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     *,
     flags: list[str],
     daemon_timeout: int = 0,
     allow_sources: bool = False,
-    log_file: str | None = None,
+    log_file: str | Path | trio.Path | None = None,
 ) -> bool:
     """Start daemon if not already running.
 
     Returns False if error starting / already running.
     """
-    if not is_running(status_file):
+    if not await is_running(status_file):
         # Bad or missing status file or dead process; good to start.
         return await _start_server(
             status_file,
@@ -430,7 +441,7 @@ async def start(
 
 
 async def status(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     *,
     timeout: int = 5,  # noqa: ASYNC109
     fswatcher_dump_file: str | None = None,
@@ -445,12 +456,12 @@ async def status(
 
 
 async def run(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     *,
     flags: list[str],
     timeout: int | None = None,  # noqa: ASYNC109
     daemon_timeout: int = 0,
-    log_file: str | None = None,
+    log_file: str | Path | trio.Path | None = None,
     export_types: bool = False,
 ) -> Response:
     """Do a check, starting (or restarting) the daemon as necessary.
@@ -495,9 +506,9 @@ async def run(
     return response
 
 
-def kill(status_file: str) -> bool:
+async def kill(status_file: str | Path | trio.Path) -> bool:
     """Kill daemon process with SIGKILL. Return True if killed."""
-    pid = get_status(status_file)[0]
+    pid = (await get_status(status_file))[0]
     try:
         _kill(pid)
     except OSError as ex:
@@ -507,7 +518,7 @@ def kill(status_file: str) -> bool:
 
 
 async def check(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     files: Sequence[str],
     *,
     timeout: int | None = None,  # noqa: ASYNC109
@@ -524,7 +535,7 @@ async def check(
 
 
 async def recheck(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     export_types: bool,
     *,
     timeout: int | None = None,  # noqa: ASYNC109
@@ -562,7 +573,7 @@ async def recheck(
 
 
 async def inspect(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     location: str,  # line:col
     show: str = "type",  # type, attrs, definition
     *,
@@ -593,7 +604,7 @@ async def inspect(
 
 
 async def suggest(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     function: str,
     do_json: bool,
     *,
@@ -622,7 +633,7 @@ async def suggest(
 
 
 async def hang(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     *,
     timeout: int = 1,  # noqa: ASYNC109
 ) -> Response:
@@ -633,10 +644,10 @@ async def hang(
 
 
 def do_daemon(
-    status_file: str,
+    status_file: str | Path | trio.Path,
     flags: list[str],
     daemon_timeout: int | None = None,
 ) -> None:
     """Serve requests in the foreground."""
     options = _process_start_options(flags, allow_sources=False)
-    _Server(options, status_file, timeout=daemon_timeout).serve()
+    _Server(options, str(status_file), timeout=daemon_timeout).serve()

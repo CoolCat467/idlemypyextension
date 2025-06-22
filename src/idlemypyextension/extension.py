@@ -201,12 +201,11 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
     def __getattr__(self, attr_name: str) -> object:
         """Transform event async sync calls to sync wrappers."""
-        if not attr_name.endswith("_event"):
-            return super.__getattr__(attr_name)
-        as_async = f"{attr_name}_async"
-        if not hasattr(self, as_async):
-            return super.__getattr__(attr_name)
-        return self.get_async(as_async)
+        if attr_name.endswith("_event"):
+            as_async = f"{attr_name}_async"
+            if hasattr(self, as_async):
+                return self.get_async(as_async)
+        return super().__getattribute__(attr_name)
 
     def get_async(
         self,
@@ -423,7 +422,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
     async def ensure_daemon_running(self) -> bool:
         """Make sure daemon is running. Return False if cannot continue."""
-        if not client.is_running(self.status_file):
+        if not await client.is_running(str(self.status_file)):
             command = " ".join(
                 x
                 for x in [
@@ -456,7 +455,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
     ) -> str:
         """Shutdown dmypy daemon event handler."""
         # pylint: disable=unused-argument
-        if not client.is_running(self.status_file):
+        if not await client.is_running(self.status_file):
             self.text.bell()
             return "break"
 
@@ -466,7 +465,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         response = await client.stop(self.status_file)
         if response.get("err") or response.get("error"):
             # Kill
-            client.kill(self.status_file)
+            await client.kill(self.status_file)
 
         return "break"
 
