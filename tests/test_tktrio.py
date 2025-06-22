@@ -47,6 +47,15 @@ class FakeTK:
         """Add function to run queue."""
         self.tasks.append(partial(function, *args))
 
+    def after(
+        self,
+        _delay: int,
+        function: Callable[[Unpack[PosArgT]], object],
+        *args: Unpack[PosArgT],
+    ) -> None:
+        """Add function to run queue."""
+        self.tasks.append(partial(function, *args))
+
     def update(self) -> None:
         """Run one task from queue."""
         if self.should_stop:
@@ -82,7 +91,7 @@ def trio_runner(mock_tk: tk.Tk) -> TkTrioRunner:
         "idlemypyextension.tktrio.is_tk_wm_and_misc_subclass",
         return_value=True,
     ):
-        return TkTrioRunner(mock_tk)
+        return TkTrioRunner(mock_tk, None)
 
 
 def test_initialization(trio_runner: TkTrioRunner) -> None:
@@ -96,8 +105,8 @@ def test_new_gives_copy(mock_tk: tk.Tk) -> None:
         "idlemypyextension.tktrio.is_tk_wm_and_misc_subclass",
         return_value=True,
     ):
-        runner = TkTrioRunner(mock_tk)
-        runner2 = TkTrioRunner(mock_tk)
+        runner = TkTrioRunner(mock_tk, None)
+        runner2 = TkTrioRunner(mock_tk, None)
         assert runner is runner2
 
 
@@ -107,13 +116,13 @@ def test_invalid_initialization() -> None:
         ValueError,
         match=r"^Must be subclass of both tk\.Misc and tk\.Wm$",
     ):
-        TkTrioRunner(None)
+        TkTrioRunner(None, None)
 
 
-def test_schedule_task_threadsafe(trio_runner: TkTrioRunner) -> None:
+def test_schedule_task_not_threadsafe(trio_runner: TkTrioRunner) -> None:
     """Test scheduling a task in the Tkinter event loop."""
     mock_function = MagicMock()
-    trio_runner.schedule_task_threadsafe(mock_function)
+    trio_runner.schedule_task_not_threadsafe(mock_function)
 
     # Process the scheduled tasks
     trio_runner.root.update()
