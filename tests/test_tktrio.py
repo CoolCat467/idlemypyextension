@@ -12,7 +12,7 @@ from idlemypyextension.tktrio import RunStatus, TkTrioRunner
 
 if TYPE_CHECKING:
     import tkinter as tk
-    from collections.abc import Callable
+    from collections.abc import Callable, Generator
 
     from typing_extensions import TypeVarTuple, Unpack
 
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(autouse=True)
-def mock_extension_log() -> MagicMock:
+def mock_extension_log() -> Generator[MagicMock, None, None]:
     """Fixture to override extension_log with an empty function."""
     with patch(
         "idlemypyextension.utils.extension_log",
@@ -116,7 +116,7 @@ def test_invalid_initialization() -> None:
         ValueError,
         match=r"^Must be subclass of both tk\.Misc and tk\.Wm$",
     ):
-        TkTrioRunner(None, None)
+        TkTrioRunner(None, None)  # type: ignore[arg-type]
 
 
 def test_schedule_task_not_threadsafe(trio_runner: TkTrioRunner) -> None:
@@ -149,7 +149,7 @@ def test_cancel_current_task(trio_runner: TkTrioRunner) -> None:
 
     assert trio_runner.run_status == RunStatus.TRIO_RUNNING_CANCELED
 
-    while trio_runner.run_status != RunStatus.NO_TASK:
+    while str(trio_runner.run_status) != str(RunStatus.NO_TASK):
         trio_runner.root.update()
 
     assert nursery.cancel_scope.cancel_called

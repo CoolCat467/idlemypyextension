@@ -13,11 +13,11 @@ import pytest
 from idlemypyextension import annotate
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Sequence
+    from collections.abc import Collection, Generator, Sequence
 
 
 @pytest.fixture(autouse=True)
-def mock_extension_log() -> MagicMock:
+def mock_extension_log() -> Generator[MagicMock, None, None]:
     """Fixture to override extension_log with an empty function."""
     with patch(
         "idlemypyextension.utils.extension_log",
