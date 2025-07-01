@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, ClassVar, Final
 from idlemypyextension import annotate, client, tktrio, utils
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
     from idlelib.pyshell import PyShellEditorWindow
     from tkinter import Event, Misc
 
@@ -135,26 +135,31 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
     __slots__ = ("triorun",)
     # Extend the file and format menus.
-    menudefs: ClassVar = [
+    menudefs: ClassVar[
+        Sequence[tuple[str, Sequence[tuple[str, str] | None]]]
+    ] = (
         (
             "edit",
-            [
+            (
                 None,
                 ("_Type Check File", "<<type-check>>"),
                 ("Find Next Type Comment", "<<find-next-type-comment>>"),
-            ],
+            ),
         ),
         (
             "format",
-            [
+            (
                 ("Suggest Signature", "<<suggest-signature>>"),
                 ("Remove Type Comments", "<<remove-type-comments>>"),
-            ],
+            ),
         ),
-        ("run", [("Shutdown dmypy daemon", "<<shutdown-dmypy-daemon>>")]),
-    ]
+        (
+            "run",
+            (("Shutdown dmypy daemon", "<<shutdown-dmypy-daemon>>"),),
+        ),
+    )
     # Default values for configuration file
-    values: ClassVar = {
+    values: ClassVar[dict[str, str]] = {
         "enable": "True",
         "enable_editor": "True",
         "enable_shell": "False",
@@ -165,7 +170,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         "action_max_sec": "None",
     }
     # Default key binds for configuration file
-    bind_defaults: ClassVar = {
+    bind_defaults: ClassVar[dict[str, str | None]] = {
         "type-check": "<Alt-Key-t>",
         "suggest-signature": "<Alt-Key-s>",
         "remove-type-comments": "<Alt-Shift-Key-T>",

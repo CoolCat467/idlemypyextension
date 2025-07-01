@@ -24,6 +24,7 @@ __title__ = "extension-utils"
 __author__ = "CoolCat467"
 __license__ = "GNU General Public License Version 3"
 
+import importlib
 import sys
 import time
 import traceback
@@ -62,7 +63,7 @@ def set_title(title: str) -> None:
 
 def get_required_config(
     values: dict[str, str],
-    bind_defaults: dict[str, str],
+    bind_defaults: dict[str, str | None],
     extension_title: str,
 ) -> str:
     """Get required configuration file data."""
@@ -79,7 +80,9 @@ def get_required_config(
             config += "\n"
     # Get key bindings data
     settings = "\n".join(
-        f"{event} = {key}" for event, key in bind_defaults.items()
+        f"{event} = {key}"
+        for event, key in bind_defaults.items()
+        if key is not None
     )
     if settings:
         config += f"\n[{extension_title}_cfgBindings]\n{settings}"
@@ -89,7 +92,7 @@ def get_required_config(
 def check_installed(
     extension: str,
     version: str,
-    cls: type[BaseExtension] | None,
+    cls: type[BaseExtension] | None = None,
 ) -> bool:
     """Make sure extension installed. Return True if installed correctly."""
     # Get list of system extensions
@@ -108,31 +111,31 @@ def check_installed(
 
     if cls is None:
         # Import extension
-        module = __import__(extension)
+        module = importlib.import_module(extension)
 
         # Get extension class
         if not hasattr(module, extension):
             print(
-                f"ERROR: Somehow, {__title__} was installed improperly, "
-                f"no {__title__} class found in module. Please report "
+                f"ERROR: Somehow, {extension} was installed improperly, "
+                f"no {extension} class found in module. Please report "
                 "this on github.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return False
 
         cls = getattr(module, extension)
-    if not issubclass(cls, BaseExtension):
-        raise ValueError(f"Expected BaseExtension subclass, got {cls!r}")
-
-    # Get extension class keybinding defaults
-    required_config = get_required_config(
-        getattr(cls, "values", {}),
-        getattr(cls, "bind_defaults", {}),
-        extension,
-    )
+    # if not issubclass(cls, BaseExtension):
+    #     raise ValueError(f"Expected BaseExtension subclass, got {cls!r}")
 
     # If this extension not in there,
     if extension not in extensions:
+        # Get extension class keybinding defaults
+        required_config = get_required_config(
+            getattr(cls, "values", {}),
+            getattr(cls, "bind_defaults", {}),
+            extension,
+        )
+
         # Tell user how to add it to system list.
         print(f"{extension} not in system registered extensions!")
         print(
@@ -266,11 +269,12 @@ def ensure_section_exists(section: str) -> bool:
 
 def ensure_values_exist_in_section(
     section: str,
-    values: dict[str, str],
+    values: dict[str, str | None] | dict[str, str],
 ) -> bool:
     """For each key in values, make sure key exists. Return if edited.
 
-    If not, create and set to value.
+    If key does not exist and default value is not None, create and set
+    to value.
     """
     need_save = False
     for key, default in values.items():
@@ -287,7 +291,10 @@ def ensure_values_exist_in_section(
 
 
 def ask_save_dialog(parent: Text) -> bool:
-    """Ask to save dialog stolen from idlelib.runscript.ScriptBinding."""
+    """Ask to save dialog. Return if ok to save.
+
+    Stolen from idlelib.runscript.ScriptBinding.
+    """
     msg = "Source Must Be Saved\n" + 5 * " " + "OK to Save?"
     confirm: bool = messagebox.askokcancel(
         title="Save Before Run or Check",
@@ -359,7 +366,7 @@ def temporary_overwrite(
 
 
 def extension_log(content: str) -> None:
-    """Log content to extension log."""
+    """Log content to extension log file."""
     if not LOGS_PATH.exists():
         LOGS_PATH.mkdir(exist_ok=True)
     log_file = LOGS_PATH / f"{TITLE}.log"
@@ -419,17 +426,19 @@ class BaseExtension:
     )
 
     # Extend the file and format menus.
-    menudefs: ClassVar = []
+    menudefs: ClassVar[
+        Sequence[tuple[str, Sequence[tuple[str, str] | None]]]
+    ] = ()
 
     # Default values for configuration file
-    values: ClassVar = {
+    values: ClassVar[dict[str, str]] = {
         "enable": "True",
         "enable_editor": "True",
         "enable_shell": "False",
     }
 
     # Default key binds for configuration file
-    bind_defaults: ClassVar = {}
+    bind_defaults: ClassVar[dict[str, str | None]] = {}
 
     def __init__(
         self,
@@ -449,9 +458,18 @@ class BaseExtension:
             comment_prefix = f"{self.__class__.__name__}"
         self.comment_prefix = f"# {comment_prefix}: "
 
-        # Bind non-keyboard triggered events, as IDLE only binds
-        # keyboard events automatically.
-        for bind_name, key in self.bind_defaults.items():
+        self.bind_non_keyboard(self.bind_defaults)
+
+    def __repr__(self) -> str:
+        """Return representation of self."""
+        return f"{self.__class__.__name__}({self.editwin!r})"
+
+    def bind_non_keyboard(self, bind_defaults: dict[str, str | None]) -> None:
+        """Bind non-keyboard triggered events.
+
+        IDLE only binds keyboard events automatically.
+        """
+        for bind_name, key in bind_defaults.items():
             if key is not None:
                 continue
             bind_func_name = bind_name.replace("-", "_") + "_event"
@@ -461,10 +479,6 @@ class BaseExtension:
             if not callable(bind_func):
                 raise ValueError(f"{bind_func_name} should be callable")
             self.text.bind(f"<<{bind_name}>>", bind_func)
-
-    def __repr__(self) -> str:
-        """Return representation of self."""
-        return f"{self.__class__.__name__}({self.editwin!r})"
 
     @classmethod
     def ensure_bindings_exist(cls) -> bool:
