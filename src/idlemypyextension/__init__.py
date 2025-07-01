@@ -109,7 +109,7 @@ def run(args: list[str]) -> int:
     assert isinstance(pyshell_window, pyshell.PyShellEditorWindow)
 
     if not pyshell_window.extensions:
-        # No extensions loadex, close.
+        # No extensions loaded, close.
         pyshell.root.destroy()
         pyshell.capture_warnings(False)
         return 1
