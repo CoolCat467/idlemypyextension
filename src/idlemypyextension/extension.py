@@ -62,7 +62,7 @@ def debug(message: object) -> None:
     print(f"\n[{__title__}] DEBUG: {as_str}")
 
 
-MYPY_ERROR_TYPE: Final = re.compile(r"  \[[a-z\-]+\]\s*$")
+MYPY_ERROR_TYPE: Final = re.compile(r"  \[([a-z\-]+)\]\s*$")
 
 
 def parse_comments(
@@ -91,25 +91,26 @@ def parse_comments(
             if sys.platform == "win32":
                 windows_drive_letter, where = where.split(":", 1)
                 windows_drive_letter += ":"
-            position = where.split(":", 4)
+            position = where.rsplit(":", 4)
 
             filename = f"{windows_drive_letter}{position[0]}"
-            if len(position) > 1:
+            colon_count = len(position)
+            if colon_count > 1:
                 line = int(position[1])
                 line_end = line
-            if len(position) > 2:
+            if colon_count > 2:
                 col = int(position[2])
                 col_end = col
-            if len(position) > 4:
+            if colon_count > 4:
                 line_end = int(position[3])
-                if line_end == line:
-                    col_end = int(position[4])
-                else:
-                    line_end = line
+                # if line_end == line:
+                col_end = int(position[4])
+                # else:
+                #    line_end = line
         comment_type = MYPY_ERROR_TYPE.search(text)
         if comment_type is not None:
             text = text[: comment_type.start()]
-            msg_type = f"{comment_type.group(0)[3:-1]} {msg_type}"
+            msg_type = f"{comment_type.group(1)} {msg_type}"
 
         comment = utils.Comment(
             file=filename,
@@ -327,7 +328,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         if only_filename is not None:
             only_filename = os.path.abspath(only_filename)
 
-        files = parse_comments(
+        file_comments = parse_comments(
             mypy_output,
             default_file,
             start_line,
@@ -335,26 +336,26 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         file_commented_lines: dict[str, list[int]] = {}
 
-        to_comment = list(files)
+        to_comment = set(file_comments)
 
         if self.typecomment_only_current_file and not add_all_override:
             assert only_filename is not None
-            to_comment = [only_filename]
+            to_comment = {only_filename}
 
             # Find first line in target file or use start_line
-            if not files.get(only_filename):
+            if not file_comments.get(only_filename):
                 other_files_comment_line = start_line
             else:
                 other_files_comment_line = min(
-                    comment.line for comment in files[only_filename]
+                    comment.line for comment in file_comments[only_filename]
                 )
 
             # Add comments about how other files have errors
-            files.setdefault(only_filename, [])
-            for filename in files:
+            file_comments.setdefault(only_filename, [])
+            for filename in file_comments:
                 if filename == only_filename:
                     continue
-                files[only_filename].append(
+                file_comments[only_filename].append(
                     utils.Comment(
                         file=only_filename,
                         line=other_files_comment_line,
@@ -364,14 +365,14 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
                 )
 
         for target_filename in to_comment:
-            if target_filename not in files:
+            if target_filename not in file_comments:
                 continue
             if target_filename == UNKNOWN_FILE:
                 continue
-            file_comments = self.add_type_comments_for_file(
-                files[target_filename],
+            file_comment_lines = self.add_type_comments_for_file(
+                file_comments[target_filename],
             )
-            file_commented_lines.update(file_comments)
+            file_commented_lines.update(file_comment_lines)
         return file_commented_lines
 
     def add_extra_data(
@@ -427,32 +428,32 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
     async def ensure_daemon_running(self) -> bool:
         """Make sure daemon is running. Return False if cannot continue."""
-        if not await client.is_running(str(self.status_file)):
-            command = " ".join(
-                x
-                for x in [
-                    "dmypy",
-                    f'--status-file="{self.status_file}"',
-                    "start",
-                    f'--log-file="{self.log_file}"',
-                    (
-                        f"--timeout={self.daemon_timeout}"
-                        if self.daemon_timeout
-                        else ""
-                    ),
-                    "--",
-                    *self.flags,
-                ]
-                if x
-            )
-            debug(f"{command = }")
-            return await client.start(
-                self.status_file,
-                flags=self.flags,
-                daemon_timeout=self.daemon_timeout,
-                log_file=self.log_file,
-            )
-        return True
+        if await client.is_running(str(self.status_file)):
+            return True
+        command = " ".join(
+            x
+            for x in [
+                "dmypy",
+                f'--status-file="{self.status_file}"',
+                "start",
+                f'--log-file="{self.log_file}"',
+                (
+                    f"--timeout={self.daemon_timeout}"
+                    if self.daemon_timeout
+                    else ""
+                ),
+                "--",
+                *self.flags,
+            ]
+            if x
+        )
+        debug(f"{command = }")
+        return await client.start(
+            self.status_file,
+            flags=self.flags,
+            daemon_timeout=self.daemon_timeout,
+            log_file=self.log_file,
+        )
 
     async def shutdown_dmypy_daemon_event_async(
         self,
@@ -468,6 +469,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         command = f'dmypy --status-file="{self.status_file}" stop'
         debug(f"{command = }")
         response = await client.stop(self.status_file)
+        debug(f"{response = }")
         if response.get("err") or response.get("error"):
             # Kill
             await client.kill(self.status_file)
@@ -511,7 +513,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         ##    log_file=self.log_file,
         ##    export_types=True,
         ##)
-        command = f'dmypy --status-file="{self.status_file}" check --export-types "{file}"'
+        command = f"dmypy --status-file='{self.status_file}' check --export-types {file!r}"
         debug(f"{command = }")
         return await client.check(
             self.status_file,

@@ -42,13 +42,14 @@ __license__ = "MIT"
 
 import base64
 import contextlib
-import json
 import sys
 from collections import ChainMap
 from typing import TYPE_CHECKING, TypedDict, cast
 
+import orjson
+
 from idlemypyextension.moduleguard import guard_imports
-from idlemypyextension.utils import extension_log
+from idlemypyextension.utils import extension_log, extension_log_exception
 
 with guard_imports({"trio", "mypy"}):
     import trio
@@ -63,8 +64,8 @@ with guard_imports({"trio", "mypy"}):
 
 if TYPE_CHECKING:
     import io
+    import os
     from collections.abc import Sequence
-    from pathlib import Path
 
     from typing_extensions import NotRequired
 
@@ -80,6 +81,26 @@ def debug(message: str) -> None:
     content = f"[{__title__}] DEBUG: {message}"
     print(f"\n{content}")
     extension_log(content)
+
+
+class Stats(TypedDict):
+    """Statistics dictionary from dmypy response."""
+
+    validate_meta_time: float
+    files_parsed: int
+    modules_parsed: int
+    stubs_parsed: int
+    parse_time: float
+    find_module_time: float
+    find_module_calls: int
+    graph_size: int
+    stubs_found: int
+    graph_load_time: float
+    fm_cache_size: int
+    load_fg_deps_time: float
+    sccs_left: int
+    nodes_left: int
+    cache_commit_time: float
 
 
 class Response(TypedDict):
@@ -98,7 +119,7 @@ class Response(TypedDict):
     memory_maxrss_mib: NotRequired[float]
     restart: NotRequired[str]
     status: NotRequired[int]
-    stats: NotRequired[object]
+    stats: NotRequired[Stats]
     final: NotRequired[bool]
 
 
@@ -123,7 +144,7 @@ def str_maintain_none(obj: str | object | None) -> str | None:
 
 
 async def _read_status(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
 ) -> dict[str, object]:
     """Read status file.
 
@@ -136,9 +157,10 @@ async def _read_status(
 
     contents = await path.read_text(encoding="utf-8")
     try:
-        data = json.loads(contents)
-    except Exception as ex:
-        raise BadStatusError("Malformed status file (not JSON)") from ex
+        data = orjson.loads(contents)
+    except Exception as exc:
+        extension_log_exception(exc)
+        raise BadStatusError("Malformed status file (not JSON)") from exc
     if not isinstance(data, dict):
         raise BadStatusError("Invalid status file (not a dict)")
     return data
@@ -166,7 +188,7 @@ def _check_status(data: dict[str, object]) -> tuple[int, str]:
     return pid, connection_name
 
 
-async def get_status(status_file: str | Path | trio.Path) -> tuple[int, str]:
+async def get_status(status_file: str | os.PathLike[str]) -> tuple[int, str]:
     """Read status file and check if the process is alive.
 
     Return (process id, connection_name) on success.
@@ -181,8 +203,9 @@ def _read_request_response_json(request_response: str | bytes) -> Response:
     """Read request response json."""
     # debug(f'{request_response = }')
     try:
-        data = json.loads(request_response)
-    except Exception:
+        data = orjson.loads(request_response)
+    except Exception as exc:
+        extension_log_exception(exc)
         return {"error": "Data received is not valid JSON"}
     if not isinstance(data, dict):
         return {"error": f"Data received is not a dict (got {type(data)})"}
@@ -191,7 +214,7 @@ def _read_request_response_json(request_response: str | bytes) -> Response:
 
 async def _request_win32(
     name: str,
-    request_arguments: str,
+    request_arguments: bytes,
     timeout: int | None = None,  # noqa: ASYNC109
 ) -> Response:
     """Request from daemon on windows."""
@@ -206,69 +229,74 @@ async def _request_win32(
         """
         bdata: str = await async_connection.read()
         if not bdata:
-            return {"error": "No data received"}
+            return {"error": "No data received, IPC socket connection closed."}
         return _read_request_response_json(bdata)
 
     try:
         all_responses: list[Response] = []
         with _IPCClient(name, timeout) as client:
             async_client = trio.wrap_file(cast("io.StringIO", client))
-            await async_client.write(request_arguments)
+            await async_client.write(request_arguments.decode("utf-8"))
 
             final = False
             while not final:
                 response = await _receive(async_client)
                 final = bool(response.pop("final", False))
                 all_responses.append(response)
-        if len(all_responses) > 1:
-            debug(f"request win32 {all_responses = }")
+                debug(f"{response = }")
+        # if len(all_responses) > 1:
+        #    debug(f"request win32 {all_responses = }")
         return cast("Response", dict(ChainMap(*all_responses).items()))  # type: ignore[arg-type]
     except (OSError, _IPCException, ValueError) as err:
         return {"error": str(err)}
 
 
+def find_frame_in_buffer(
+    buffer: bytearray,
+) -> tuple[bytearray, bytearray | None]:
+    """Return a full frame from the bytes we have in the buffer.
+
+    Returns (next frame keep data, complete frame | None)
+    """
+    space_pos = buffer.find(b" ")
+    if space_pos == -1:
+        # Incomplete frame
+        return buffer, None
+    # We have a full frame
+    return buffer[space_pos + 1 :], buffer[:space_pos]
+
+
 async def _request_linux(
     filename: str,
-    request_arguments: str,
+    request_arguments: bytes,
     timeout: float | None = None,  # noqa: ASYNC109
 ) -> Response:
     """Request from daemon on linux/unix."""
-
-    def find_frame_in_buffer(
-        buffer: bytearray,
-    ) -> tuple[bytearray, bytearray | None]:
-        """Return a full frame from the bytes we have in the buffer."""
-        space_pos = buffer.find(b" ")
-        if space_pos == -1:
-            return buffer, None
-        # We have a full frame
-        return buffer[space_pos + 1 :], buffer[:space_pos]
-
     buffer = bytearray()
     frame: bytearray | None = None
     all_responses: list[Response] = []
     async with await trio.open_unix_socket(filename) as connection:
         # Frame the data by urlencoding it and separating by space.
-        request_frame = (
-            base64.encodebytes(request_arguments.encode("utf8")) + b" "
-        )
+        request_frame = base64.encodebytes(request_arguments) + b" "
         await connection.send_all(request_frame)
 
         is_not_done = True
         while is_not_done:
             # Receive more data into the buffer.
             try:
-                if timeout is not None:
+                if timeout is None:
+                    more = await connection.receive_some()
+                else:
                     with trio.fail_after(timeout):
                         more = await connection.receive_some()
-                else:
-                    more = await connection.receive_some()
             except trio.TooSlowError:
-                return {"error": "Connection timed out"}
+                return {"error": "IPC socket connection timed out"}
             if not more:
                 # Connection closed
                 # Socket was empty and we didn't get any frame.
-                return {"error": "No data received"}
+                return {
+                    "error": "No data received, IPC socket connection closed.",
+                }
             buffer.extend(more)
 
             buffer, frame = find_frame_in_buffer(buffer)
@@ -280,8 +308,9 @@ async def _request_linux(
 
             is_not_done = not bool(response.pop("final", False))
             all_responses.append(response)
-    if len(all_responses) > 1:
-        debug(f"request linux {all_responses = }")
+            debug(f"{response = }")
+    # if len(all_responses) > 1:
+    #    debug(f"request linux {all_responses = }")
     return cast("Response", dict(ChainMap(*all_responses).items()))  # type: ignore[arg-type]
 
 
@@ -289,7 +318,7 @@ REQUEST_LOCK = trio.Lock()
 
 
 async def request(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     command: str,
     *,
     timeout: int | None = None,  # noqa: ASYNC109
@@ -305,16 +334,18 @@ async def request(
     Return {'error': <message>} if an IPC operation or receive()
     raised OSError.  This covers cases such as connection refused or
     closed prematurely as well as invalid JSON received.
+
+    `stdout` and `stderr` fields are apparently debug data.
     """
     args = dict(kwds)
     args["command"] = command
-    # Tell the server whether this request was initiated from a
+    # Tell the server whether this request was NOT initiated from a
     # human-facing terminal, so that it can format the type checking
     # output accordingly.
     args["is_tty"] = False
     args["terminal_width"] = 80
-    request_arguments = json.dumps(args)
-    _, name = await get_status(status_file)
+    request_arguments = orjson.dumps(args)
+    _pid, name = await get_status(status_file)
 
     async with REQUEST_LOCK:
         if sys.platform == "win32" or FORCE_BASE_REQUEST:
@@ -327,7 +358,7 @@ async def request(
         )
 
 
-async def is_running(status_file: str | Path | trio.Path) -> bool:
+async def is_running(status_file: str | os.PathLike[str]) -> bool:
     """Check if the server is running cleanly."""
     try:
         await get_status(status_file)
@@ -336,13 +367,13 @@ async def is_running(status_file: str | Path | trio.Path) -> bool:
     return True
 
 
-async def stop(status_file: str | Path | trio.Path) -> Response:
+async def stop(status_file: str | os.PathLike[str]) -> Response:
     """Stop daemon via a 'stop' request."""
     return await request(status_file, "stop", timeout=5)
 
 
 async def _wait_for_server(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     timeout: float = 5.0,  # noqa: ASYNC109
 ) -> bool:
     """Wait until the server is up. Return False if timed out."""
@@ -367,14 +398,18 @@ async def _wait_for_server(
 
 
 async def _start_server(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     *,
     flags: list[str],
     daemon_timeout: int | None = None,
     allow_sources: bool = False,
-    log_file: str | Path | trio.Path | None = None,
+    log_file: str | os.PathLike[str] | None = None,
 ) -> bool:
-    """Start the server and wait for it. Return False if error starting."""
+    """Start the server and wait for it. Return False if error starting.
+
+    daemon_timeout:
+        Server shutdown timeout (in seconds)
+    """
     start_options = _process_start_options(flags, allow_sources)
     if (
         _daemonize(
@@ -390,16 +425,19 @@ async def _start_server(
 
 
 async def restart(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     *,
     flags: list[str],
     daemon_timeout: int | None = 0,
     allow_sources: bool = False,
-    log_file: str | Path | trio.Path | None = None,
+    log_file: str | os.PathLike[str] | None = None,
 ) -> bool:
     """Restart daemon (it may or may not be running; but not hanging).
 
     Returns False if error starting.
+
+    daemon_timeout:
+        Server shutdown timeout (in seconds)
     """
     # Bad or missing status file or dead process; good to start.
     with contextlib.suppress(BadStatusError):
@@ -417,16 +455,19 @@ async def restart(
 
 
 async def start(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     *,
     flags: list[str],
     daemon_timeout: int = 0,
     allow_sources: bool = False,
-    log_file: str | Path | trio.Path | None = None,
+    log_file: str | os.PathLike[str] | None = None,
 ) -> bool:
     """Start daemon if not already running.
 
     Returns False if error starting / already running.
+
+    daemon_timeout:
+        Server shutdown timeout (in seconds)
     """
     if not await is_running(status_file):
         # Bad or missing status file or dead process; good to start.
@@ -441,7 +482,7 @@ async def start(
 
 
 async def status(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     *,
     timeout: int = 5,  # noqa: ASYNC109
     fswatcher_dump_file: str | None = None,
@@ -456,18 +497,21 @@ async def status(
 
 
 async def run(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     *,
     flags: list[str],
     timeout: int | None = None,  # noqa: ASYNC109
     daemon_timeout: int = 0,
-    log_file: str | Path | trio.Path | None = None,
+    log_file: str | os.PathLike[str] | None = None,
     export_types: bool = False,
 ) -> Response:
     """Do a check, starting (or restarting) the daemon as necessary.
 
     Restarts the daemon if the running daemon reports that it is
     required (due to a configuration change, for example).
+
+    daemon_timeout:
+        Server shutdown timeout (in seconds)
     """
     # Start if missing status file or dead process
     await start(
@@ -506,7 +550,7 @@ async def run(
     return response
 
 
-async def kill(status_file: str | Path | trio.Path) -> bool:
+async def kill(status_file: str | os.PathLike[str]) -> bool:
     """Kill daemon process with SIGKILL. Return True if killed."""
     pid = (await get_status(status_file))[0]
     try:
@@ -518,7 +562,7 @@ async def kill(status_file: str | Path | trio.Path) -> bool:
 
 
 async def check(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     files: Sequence[str],
     *,
     timeout: int | None = None,  # noqa: ASYNC109
@@ -535,7 +579,7 @@ async def check(
 
 
 async def recheck(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     export_types: bool,
     *,
     timeout: int | None = None,  # noqa: ASYNC109
@@ -555,25 +599,25 @@ async def recheck(
 
     NOTE: The list of files is lost when the daemon is restarted.
     """
-    if remove is not None or update is not None:
-        return await request(
-            status_file,
-            "recheck",
-            timeout=timeout,
-            export_types=export_types,
-            remove=remove,
-            update=update,
-        )
+    # if remove is not None or update is not None:
     return await request(
         status_file,
         "recheck",
         timeout=timeout,
         export_types=export_types,
+        remove=remove,
+        update=update,
     )
+    # return await request(
+    #     status_file,
+    #     "recheck",
+    #     timeout=timeout,
+    #     export_types=export_types,
+    # )
 
 
 async def inspect(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     location: str,  # line:col
     show: str = "type",  # type, attrs, definition
     *,
@@ -586,7 +630,44 @@ async def inspect(
     union_attrs: bool = False,
     force_reload: bool = False,
 ) -> Response:
-    """Ask daemon to print the type of an expression."""
+    """Ask daemon to print the type of an expression.
+
+    Locate and statically inspect expression(s)
+
+    Location specified as
+    path/to/file.py:line:column[:end_line:end_column]. If position is
+    given (i.e. only line and column), this will return all enclosing
+    expressions
+
+    show:
+        What kind of inspection to run, can be one of the following:
+        [type, attrs, definition]
+
+    verbosity:
+        Increase verbosity of the type string representation
+
+    limit:
+        Return at most NUM innermost expressions (if position is given);
+        0 means no limit
+
+    include_span:
+        Prepend each inspection result with the span of corresponding
+        expression (e.g. 1:2:3:4:"int")
+
+    include_kind:
+        Prepend each inspection result with the kind of corresponding
+        expression (e.g. NameExpr:"int")
+
+    include_object_attrs:
+        Include attributes of "object" in "attrs" inspection
+
+    union_attrs:
+        Include attributes valid for some of possible expression types
+        (by default an intersection is returned)
+
+    force_reload:
+        Re-parse and re-type-check file before inspection (may be slow)
+    """
     return await request(
         status_file,
         "inspect",
@@ -604,7 +685,7 @@ async def inspect(
 
 
 async def suggest(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     function: str,
     do_json: bool,
     *,
@@ -616,7 +697,35 @@ async def suggest(
     use_fixme: str | None = None,
     max_guesses: int | None = 64,
 ) -> Response:
-    """Ask the daemon for a suggested signature."""
+    """Ask the daemon for a suggested signature.
+
+    Suggest a signature or show call sites for a specific function
+
+    function:
+        Function specified as '[package.]module.[class.]function' or
+        absolute path with line number at the end
+
+    do_json:
+        Produce json that pyannotate can use to apply a suggestion
+
+    callsites:
+        Find callsites instead of suggesting a type
+
+    no_errors:
+        Only produce suggestions that cause no errors
+
+    no_any:
+        Only produce suggestions that don't contain Any
+
+    flex_any:
+        Allow anys in types if they go above a certain score (scores are from 0-1)
+
+    use_fixme:
+        A dummy name to use instead of Any for types that can't be inferred
+
+    max_guesses:
+        Set the maximum number of types to try for a function (default 64)
+    """
     return await request(
         status_file,
         "suggest",
@@ -633,7 +742,7 @@ async def suggest(
 
 
 async def hang(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     *,
     timeout: int = 1,  # noqa: ASYNC109
 ) -> Response:
@@ -644,10 +753,14 @@ async def hang(
 
 
 def do_daemon(
-    status_file: str | Path | trio.Path,
+    status_file: str | os.PathLike[str],
     flags: list[str],
     daemon_timeout: int | None = None,
 ) -> None:
-    """Serve requests in the foreground."""
+    """Serve requests in the foreground.
+
+    daemon_timeout:
+        Server shutdown timeout (in seconds)
+    """
     options = _process_start_options(flags, allow_sources=False)
     _Server(options, str(status_file), timeout=daemon_timeout).serve()

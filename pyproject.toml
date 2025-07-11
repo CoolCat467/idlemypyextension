@@ -33,9 +33,9 @@ classifiers = [
 ]
 keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
-    "mypy[dmypy]~=1.16.1",
-    'orjson; implementation_name == "cpython"',
-    "trio~=0.30.0",
+    "mypy[dmypy]>=1.16.1",
+    'orjson>=3.10.18',
+    "trio>=0.30.0",
 ]
 
 [tool.setuptools.dynamic]

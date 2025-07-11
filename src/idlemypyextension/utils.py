@@ -648,6 +648,9 @@ class BaseExtension:
         If none of the comment pointers are going to be visible
         with the comment prefix, returns None.
 
+        Does not handle comments that span multiple lines, assumes
+        comments are all comment.line
+
         Messages must all be on the same line and be in the same file,
         otherwise ValueError is raised.
         """

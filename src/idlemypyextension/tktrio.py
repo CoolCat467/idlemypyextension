@@ -400,9 +400,6 @@ class TkTrioRunner:
                 self.nursery.start_soon(function)
             return
 
-        def done_callback(outcome: Outcome[None]) -> None:
-            self._done_callback(outcome)
-
         if self.run_status != RunStatus.NO_TASK:
             raise RuntimeError(
                 "Cannot run more than one trio instance at once.",
@@ -419,7 +416,7 @@ class TkTrioRunner:
 
         trio.lowlevel.start_guest_run(
             run_nursery,
-            done_callback=done_callback,
+            done_callback=self._done_callback,
             run_sync_soon_threadsafe=self.schedule_task_threadsafe,
             run_sync_soon_not_threadsafe=self.schedule_task_not_threadsafe,
             host_uses_signal_set_wakeup_fd=False,
