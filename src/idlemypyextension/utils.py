@@ -38,7 +38,7 @@ from tkinter import TclError, Text, Tk, messagebox
 from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple, TypeVar
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Sequence
+    from collections.abc import Callable, Generator, Iterable, Sequence
     from idlelib.editor import EditorWindow
     from idlelib.format import FormatRegion
     from idlelib.iomenu import IOBinding
@@ -608,6 +608,23 @@ class BaseExtension:
 
             entry = (label, event_name, attr_name)
         self.editwin.rmenu_specs.append(entry)
+
+    def register_rightclick_menu_entries(
+        self,
+        entries: Iterable[tuple[str, str, Callable[[], bool] | None]],
+    ) -> None:
+        """Register multiple rightclick menu entries.
+
+        Entries are a series of (label, event_name, verify_function) tuples.
+
+        See register_rightclick_menu_entry for more information.
+        """
+        for label, event_name, verify_function in entries:
+            self.register_rightclick_menu_entry(
+                label,
+                event_name,
+                verify_function,
+            )
 
     @classmethod
     def ensure_bindings_exist(cls) -> bool:

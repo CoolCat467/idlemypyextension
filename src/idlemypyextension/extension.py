@@ -25,7 +25,6 @@ __author__ = "CoolCat467"
 __license__ = "GNU General Public License Version 3"
 
 import contextlib
-import json
 import math
 import os
 import re
@@ -35,6 +34,8 @@ from functools import partial, wraps
 from idlelib.config import idleConf
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Final, Literal
+
+import orjson
 
 from idlemypyextension import annotate, client, tktrio, utils
 
@@ -202,6 +203,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         "shutdown-dmypy-daemon": None,
         "dmypy-inspect-type": None,
         "dmypy-goto-definition": None,
+        "dmypy-inspect-attrs": None,
     }
 
     # Overwritten in reload
@@ -230,17 +232,31 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             restore_close=self.editwin.close,
         )
 
+        # Seems to be important to register after other
+        # initialization tasks complete, otherwise sometimes
+        # rightclick menu will be very laggy to open.
         self.text.after_idle(self.register_rightclick_items)
 
     def register_rightclick_items(self) -> None:
         """Register right click menu entries."""
-        self.register_rightclick_menu_entry(
-            "Inspect Type",
-            "<<dmypy-inspect-type>>",
-        )
-        self.register_rightclick_menu_entry(
-            "Goto Definition",
-            "<<dmypy-goto-definition>>",
+        self.register_rightclick_menu_entries(
+            (
+                (
+                    "Inspect Type",
+                    "<<dmypy-inspect-type>>",
+                    None,
+                ),
+                (
+                    "Goto Definition",
+                    "<<dmypy-goto-definition>>",
+                    None,
+                ),
+                (
+                    "Inspect Attributes",
+                    "<<dmypy-inspect-attrs>>",
+                    None,
+                ),
+            ),
         )
 
     def __getattr__(self, attr_name: str) -> object:
@@ -681,7 +697,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             self.text.bell()
             return
 
-        annotations = json.loads(response["out"])
+        annotations = orjson.loads(response["out"])
 
         line = annotations[0]["line"]
 
@@ -891,8 +907,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             comments[index] = pointer.replace_content(
                 f"{pointer.contents} - {comment.contents}",
             )
-        with utils.undo_block(self.undo):
-            self.add_comments(comments)
+        self.add_comments(comments)
 
         return "break"
 
@@ -934,6 +949,56 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         # Show selection in file
         utils.show_hit(editor_window.text, *position.as_select(), tag="sel")
+
+        return "break"
+
+    async def dmypy_inspect_attrs_event_async(
+        self,
+        event: Event[Misc],
+    ) -> str:
+        """Perform dmypy inspect attributes from right click menu."""
+        success, maybe_response = await self.dmypy_inspect_shared(
+            show="attrs",
+            include_span=True,
+        )
+        if not success:
+            value = maybe_response
+            assert not isinstance(value, tuple)
+            # Failed somehow
+            return value
+
+        response_tuple = maybe_response
+        assert isinstance(response_tuple, tuple)
+        response, file, start_line = response_tuple
+
+        comments: list[utils.Comment] = []
+
+        for comment in parse_type_inspect(response, file, start_line):
+            pointer = self.get_pointers([comment])
+            contents = comment.contents
+            data = orjson.loads(contents)
+            lines = []
+            for type_, attributes in data.items():
+                lines.append(
+                    utils.Comment(
+                        file=file,
+                        line=start_line + 1,
+                        contents=f"type {type_}:",
+                    ),
+                )
+                for attr in attributes:
+                    lines.append(
+                        utils.Comment(
+                            file=file,
+                            line=start_line + 1,
+                            contents=f"    {attr}",
+                        ),
+                    )
+
+            if pointer:
+                comments.append(pointer)
+            comments.extend(lines)
+        self.add_comments(comments)
 
         return "break"
 
