@@ -33,7 +33,7 @@ classifiers = [
 ]
 keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
-    "mypy[dmypy]>=1.16.1",
+    "mypy[dmypy]>=1.17.0",
     'orjson>=3.10.18',
     "trio>=0.30.0",
 ]
@@ -73,7 +73,11 @@ package = true
 [tool.mypy]
 files = ["src/idlemypyextension/", "tests"]
 mypy_path = "stubs"
-enable_error_code = ["truthy-bool", "mutable-override"]
+enable_error_code = [
+    "truthy-bool",
+    "mutable-override",
+    "exhaustive-match",
+]
 show_column_numbers = true
 show_error_codes = true
 show_traceback = true
