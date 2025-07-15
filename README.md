@@ -10,17 +10,30 @@ Python IDLE extension to perform mypy analysis on an open file
 <!-- END BADGIE TIME -->
 
 ## What does this extension do?
-This IDLE extension hooks into the mypy daemon to type check the currently
-open file or provide a function signature suggestion for the nearest function
-to the top from the current input cursor location. When type checking the
-currently open file with the "Type Check File" command, it will add comments
-to your code wherever mypy had something to say about about that line.
-You can remove type comments from the currently selected text with the
-"Remove Type Comments" command.
-Additionally, you can jump to the next comment this extension created in
-your file with the "Find Next Type Comment" command. Finally, you can add
-an inferred function signature to your file with the "Suggest Signature"
-command when you are close by a function definition.
+- This IDLE extension hooks into the mypy daemon to type check the
+currently open file or provide a function signature suggestion for the
+nearest function to the top from the current input cursor location.
+
+- When type checking the currently open file with the "Type Check File"
+command, it will add comments to your code wherever mypy had something
+to say about about that line.
+
+- You can remove type comments added by this extension from the
+currently selected text with the "Remove Type Comments" command.
+
+- You can jump to the next comment this extension created in your file
+with the "Find Next Type Comment" command.
+
+- You can add an inferred function signature to your file with the
+"Suggest Signature" command when you are close by a function definition.
+
+- In the right click menu, you can inspect the type of the object your
+cursor is currently selecting. In this case, it adds type info comments
+about all of the objects you might be referring to. If you have a span
+of text selected, it will tell you about the type of only that span.
+
+- In the right click menu, you can go to the definition of the object
+your cursor is currently selecting.
 
 Note: On use, creates folder `mypy` within the idle user directory.
 On Linux systems, this is usually `~/.idlerc/mypy`.
