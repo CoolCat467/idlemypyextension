@@ -44,7 +44,7 @@ import base64
 import contextlib
 import sys
 from collections import ChainMap
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
 import orjson
 
@@ -619,7 +619,7 @@ async def recheck(
 async def inspect(
     status_file: str | os.PathLike[str],
     location: str,  # line:col
-    show: str = "type",  # type, attrs, definition
+    show: Literal["type", "attrs", "definition"] = "type",
     *,
     timeout: int | None = None,  # noqa: ASYNC109
     verbosity: int = 0,

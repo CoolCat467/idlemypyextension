@@ -34,9 +34,10 @@ import traceback
 from functools import partial, wraps
 from idlelib.config import idleConf
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Final
+from typing import TYPE_CHECKING, ClassVar, Final, Literal
 
 from idlemypyextension import annotate, client, tktrio, utils
+from idlemypyextension.result import Result
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -46,6 +47,9 @@ if TYPE_CHECKING:
 DAEMON_TIMEOUT_MIN: Final = 5
 ACTION_TIMEOUT_MIN: Final = 5
 UNKNOWN_FILE: Final = "<unknown file>"
+COULD_NOT_START_ERROR = client.Response(
+    {"out": "", "err": "Error: Could not start mypy daemon"},
+)
 
 
 def debug(message: object) -> None:
@@ -126,6 +130,26 @@ def parse_comments(
     return files
 
 
+def parse_type_inspect(
+    mypy_output: str,
+    file: str,
+    default_line: int = 0,
+) -> list[utils.Comment]:
+    """Parse mypy inspect output as a list of comments."""
+    comments = []
+    for output_line in mypy_output.splitlines():
+        if " -> " not in output_line:
+            comments.append(utils.Comment(file, default_line, output_line))
+            continue
+        span, content = output_line.split(" -> ", 1)
+        line, column, line_end, column_end = map(int, span.split(":", 3))
+        content = content.removeprefix('"').removesuffix('"')
+        comments.append(
+            utils.Comment(file, line, content, line_end, column, column_end),
+        )
+    return comments
+
+
 # Important weird: If event handler function returns 'break',
 # then it prevents other bindings of same event type from running.
 # If returns None, normal and others are also run.
@@ -177,6 +201,8 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         "remove-type-comments": "<Alt-Shift-Key-T>",
         "find-next-type-comment": "<Alt-Key-g>",
         "shutdown-dmypy-daemon": None,
+        "dmypy-inspect-type": None,
+        "dmypy-goto-definition": None,
     }
 
     # Overwritten in reload
@@ -203,6 +229,19 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             self.editwin.top,
             self.flist,
             restore_close=self.editwin.close,
+        )
+
+        self.text.after_idle(self.register_rightclick_items)
+
+    def register_rightclick_items(self) -> None:
+        """Register right click menu entries."""
+        self.register_rightclick_menu_entry(
+            "Inspect Type",
+            "<<dmypy-inspect-type>>",
+        )
+        self.register_rightclick_menu_entry(
+            "Goto Definition",
+            "<<dmypy-goto-definition>>",
         )
 
     def __getattr__(self, attr_name: str) -> object:
@@ -455,7 +494,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
     async def ensure_daemon_running(self) -> bool:
         """Make sure daemon is running. Return False if cannot continue."""
-        if await client.is_running(str(self.status_file)):
+        if await client.is_running(self.status_file):
             return True
         command = " ".join(
             x
@@ -506,9 +545,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
     async def check(self, file: str) -> client.Response:
         """Perform dmypy check."""
         if not await self.ensure_daemon_running():
-            return client.Response(
-                {"out": "", "err": "Error: Could not start mypy daemon"},
-            )
+            return COULD_NOT_START_ERROR
         ##flags = self.flags
         ##flags += [file]
         ### debug(f"check {flags = }")
@@ -595,16 +632,27 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             return None, line_count
         return text, line_count
 
+    def get_response_errors(self, response: client.Response) -> str | None:
+        """Return errors from response if they exist else None."""
+        errors = ""
+        if response.get("error"):
+            errors += response["error"]
+        if response.get("err"):
+            if errors:
+                errors += "\n\n"
+            errors += response["err"]
+        if response.get("stderr"):
+            if errors:
+                errors += "\n\n"
+            errors += f"stderr:\n{response['stderr']}"
+        if "out" not in response and not errors:
+            errors += "No response from dmypy daemon."
+
+        return errors if errors else None
+
     async def suggest(self, file: str, line: int) -> None:
         """Perform dmypy suggest."""
-        if not await self.ensure_daemon_running():
-            response = client.Response(
-                {"err": "Error: Could not start mypy daemon"},
-            )
-        else:
-            # Remove drive letter colon in windows
-            if sys.platform == "win32":
-                file = "".join(file.split(":", 1))
+        if await self.ensure_daemon_running():
             function = f"{file}:{line}"
 
             command = " ".join(
@@ -623,27 +671,14 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
                 do_json=True,
                 timeout=self.action_timeout,
             )
+        else:
+            response = COULD_NOT_START_ERROR
         debug(f"suggest {response = }")
 
-        errors = ""
-        if response.get("error"):
-            errors += response["error"]
-        if response.get("err"):
-            if errors:
-                errors += "\n\n"
-            errors += response["err"]
-        if response.get("stderr"):
-            if errors:
-                errors += "\n\n"
-            errors += f"stderr:\n{response['stderr']}"
-        if "out" not in response and not errors:
-            errors += "No response from dmypy daemon."
-
-        # Display errors
-        if errors:
-            # Add mypy errors
-            self.add_errors(file, self.editwin.getlineno(), errors)
-
+        if errors := self.get_response_errors(response):
+            # Display errors
+            # self.editwin.getlineno()
+            self.add_errors(file, line, errors)
             self.text.bell()
             return
 
@@ -739,18 +774,163 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         if init_return is not None:
             return init_return
+
         if file is None:
             return "break"
-        if client.REQUEST_LOCK.locked():
-            # If already requesting something from daemon,
-            # do not send any other requests.
-            debug(client.REQUEST_LOCK.statistics())
-            # Make bell sound so user knows this ran even though
-            # nothing happened.
+
+        # if client.REQUEST_LOCK.locked():
+        #     # If already requesting something from daemon,
+        #     # do not send any other requests.
+        #     debug(client.REQUEST_LOCK.statistics())
+        #     # Make bell sound so user knows this ran even though
+        #     # nothing happened.
+        #     self.text.bell()
+        #     return "break"
+
+        await self.suggest(file, self.editwin.getlineno())
+
+        return "break"
+
+    async def dmypy_inspect(
+        self,
+        location: str,
+        show: Literal["type", "attrs", "definition"],
+        include_span: bool,
+    ) -> client.Response:
+        """Return result from dmypy inspect."""
+        if await self.ensure_daemon_running():
+            command = " ".join(
+                (
+                    "dmypy",
+                    f"--status-file='{self.status_file}'",
+                    "inspect",
+                    f"--show={show!r}",
+                    "--include-span",
+                    "--force-reload",
+                    f"{location!r}",
+                ),
+            )
+            debug(f"{command = }")
+
+            return await client.inspect(
+                self.status_file,
+                location=location,
+                show=show,
+                include_span=include_span,
+                force_reload=True,  # needed_save,
+            )
+        return COULD_NOT_START_ERROR
+
+    async def dmypy_inspect_shared(
+        self,
+        show: Literal["type", "attrs", "definition"],
+        include_span: bool,
+    ) -> Result[str] | Result[tuple[str, str, int]]:
+        """Shared dmypy inspect code, return either fail string or success (output, file, line_no)."""
+        # needed_save = not self.files.get_saved()
+        init_return, file = self.initial()
+
+        if init_return is not None:
+            return Result.fail(init_return)
+
+        if file is None:
+            return Result.fail("break")
+
+        sel_start, sel_end = utils.get_selected_text_indexes(self.text)
+
+        start_line, start_col = utils.get_line_col(sel_start)
+        end_line, end_col = utils.get_line_col(sel_end)
+
+        location = f"{file}:{start_line}:{start_col + 1}"
+        if sel_start != sel_end:
+            location += f":{end_line}:{end_col}"
+
+        result = await self.dmypy_inspect(location, show, include_span)
+
+        if errors := self.get_response_errors(result):
+            # Display errors
+            # self.editwin.getlineno()
+            with utils.undo_block(self.undo):
+                self.add_errors(file, start_line, errors)
+            self.text.bell()
+            return Result.fail("break")
+
+        output = result["out"]
+        if result.get("status"):
+            with utils.undo_block(self.undo):
+                self.add_errors(file, start_line, output)
+            return Result.fail("break")
+
+        return Result.ok((output, file, start_line))
+
+    async def dmypy_inspect_type_event_async(self, event: Event[Misc]) -> str:
+        """Perform dmypy inspect type from right click menu."""
+        maybe_response = await self.dmypy_inspect_shared(
+            show="type",
+            include_span=True,
+        )
+        if not maybe_response:
+            value = maybe_response.unwrap()
+            assert not isinstance(value, tuple)
+            # Failed somehow
+            return value
+
+        response_tuple = maybe_response.unwrap()
+        assert isinstance(response_tuple, tuple)
+        response, file, start_line = response_tuple
+
+        comments = parse_type_inspect(response, file, start_line)
+
+        for index, comment in enumerate(tuple(comments)):
+            pointer = self.get_pointers([comment])
+            if not pointer:
+                continue
+            comments[index] = pointer.replace_content(
+                f"{pointer.contents} - {comment.contents}",
+            )
+        with utils.undo_block(self.undo):
+            self.add_comments(comments)
+
+        return "break"
+
+    async def dmypy_goto_definition_event_async(
+        self,
+        event: Event[Misc],
+    ) -> str:
+        """Perform dmypy inspect definition from right click menu."""
+        maybe_response = await self.dmypy_inspect_shared(
+            show="definition",
+            include_span=False,
+        )
+        if not maybe_response:
+            value = maybe_response.unwrap()
+            assert not isinstance(value, tuple)
+            # Failed somehow
+            return value
+
+        response_tuple = maybe_response.unwrap()
+        assert isinstance(response_tuple, tuple)
+        raw_locations, file, start_line = response_tuple
+
+        # Just read first one
+        raw_location = raw_locations.splitlines()[0]
+
+        debug(f"goto definition {raw_location = }")
+        location, _function = raw_location.rsplit(":", 1)
+
+        position = utils.FilePosition.parse(location)
+        position = position.delta_column()
+
+        # Try to get editor window of file path
+        editor_window = self.flist.open(position.path)
+
+        # On failure do a bell
+        if editor_window is None:
             self.text.bell()
             return "break"
 
-        await self.suggest(file, self.editwin.getlineno())
+        # Show selection in file
+        utils.show_hit(editor_window.text, *position.as_select(), tag="sel")
 
         return "break"
 

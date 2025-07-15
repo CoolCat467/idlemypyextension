@@ -35,7 +35,7 @@ from idlelib.config import idleConf
 from os.path import abspath
 from pathlib import Path
 from tkinter import TclError, Text, Tk, messagebox
-from typing import TYPE_CHECKING, ClassVar, NamedTuple, TypeVar
+from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple, TypeVar
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from idlelib.pyshell import PyShellEditorWindow, PyShellFileList
     from idlelib.undo import UndoDelegator
 
-    from typing_extensions import ParamSpec
+    from typing_extensions import ParamSpec, Self
 
     PS = ParamSpec("PS")
 
@@ -209,7 +209,7 @@ def highlight_region(text: Text, tag: str, first: str, last: str) -> None:
         text.tag_add(tag, first, last)
 
 
-def show_hit(text: Text, first: str, last: str) -> None:
+def show_hit(text: Text, first: str, last: str, tag: str = "hit") -> None:
     """Highlight text between first and last indices.
 
     Indexes are formatted as `{line}.{col}` strings.
@@ -226,7 +226,7 @@ def show_hit(text: Text, first: str, last: str) -> None:
     beforehand.
     """
     text.tag_remove("sel", "1.0", "end")
-    highlight_region(text, "hit", first, last)
+    highlight_region(text, tag, first, last)
 
     set_insert_and_move(text, first)
 
@@ -411,6 +411,87 @@ class Comment(NamedTuple):
     column: int = 0
     column_end: int | None = None
 
+    def get_full_span(self) -> tuple[int, int, int, int]:
+        """Return full span as tuple of (line, col, end_line, end_col)."""
+        return (
+            self.line,
+            self.column,
+            self.line_end if self.line_end is not None else self.line,
+            self.column_end if self.column_end is not None else self.column,
+        )
+
+    def replace_content(self, contents: str) -> Self:
+        """Return comment with same data except contents."""
+        return self._replace(contents=contents)
+
+
+def int_default(text: str, default: int = 0) -> int:
+    """Return text as int or default if there is a ValueError."""
+    try:
+        return int(text)
+    except ValueError:
+        return default
+
+
+class FilePosition(NamedTuple):
+    """File Position."""
+
+    path: str
+    line: int
+    col: int
+    line_end: int
+    col_end: int
+
+    def is_range(self) -> bool:
+        """Return True if file position covers a range."""
+        return self.line != self.line_end or self.col != self.col_end
+
+    def as_select(self) -> tuple[str, str]:
+        """Return text selection region index strings."""
+        return f"{self.line}.{self.col}", f"{self.line_end}.{self.col_end}"
+
+    def delta_column(self, delta: int = -1) -> Self:
+        """Return position but with delta added to column."""
+        return self._replace(col=self.col + delta)
+
+    @classmethod
+    def parse(cls, file_position: str) -> Self:
+        """Parse file position string."""
+        line = 0
+        line_end = 0
+        col = 0
+        col_end = 0
+
+        windows_drive_letter = ""
+        if sys.platform == "win32":
+            windows_drive_letter, file_position = file_position.split(":", 1)
+            windows_drive_letter += ":"
+        position = file_position.split(":", 5)
+
+        filename = position[0]
+        if len(position) > 1:
+            line = int_default(position[1])
+            line_end = line
+        if len(position) > 2:
+            col = int_default(position[2])
+            col_end = col
+        if len(position) > 4:
+            line_end = int_default(position[3], line_end)
+            col_end = int_default(position[4], col_end)
+
+        # If line end is before beginning, swap.
+        if line_end < line:
+            line, line_end = line_end, line
+            col, col_end = col_end, col
+
+        return cls(
+            path=f"{windows_drive_letter}{filename}",
+            line=line,
+            col=col,
+            line_end=line_end,
+            col_end=col_end,
+        )
+
 
 class BaseExtension:
     """Base extension class."""
@@ -479,6 +560,54 @@ class BaseExtension:
             if not callable(bind_func):
                 raise ValueError(f"{bind_func_name} should be callable")
             self.text.bind(f"<<{bind_name}>>", bind_func)
+
+    def get_rightclick_menu_labels(self) -> list[str | None]:
+        """Return rightclick menu labels."""
+        return [entry[0] for entry in self.editwin.rmenu_specs]
+
+    def register_rightclick_menu_entry(
+        self,
+        label: str,
+        event_name: str,
+        verify_function: Callable[[], bool] | None = None,
+    ) -> None:
+        """Register a rightclick menu entry.
+
+        Arguments:
+        label: str
+            Text to display.
+        event_name: str
+            Event to raise when entry is selected.
+        verify_function: Callable[[], bool] | None
+            Optional function to determine if this entry should
+            be enabled or not. Returns True if should be enabled.
+
+        Skips adding if label already in right click menu labels.
+
+        """
+        if label in self.get_rightclick_menu_labels():
+            return
+
+        entry: tuple[str, str, str | None]
+        if verify_function is None:
+            entry = (label, event_name, None)
+        else:
+            # Technically can be "normal", "disabled", or "active",
+            # where "active" sets it to like it's being hovered
+            # but we will say no.
+            # Normal is standard unlit, disabled is disabled.
+            @wraps(verify_function)
+            def verify_state_return_wrap() -> Literal["normal" | "disabled"]:
+                return "normal" if verify_function() else "disabled"
+
+            # wacky thing, idlelib.editor.right_menu_event does
+            # `state = getattr(self, verify_state)()`
+            # so needs to be an attribute on editor object.
+            attr_name = f"_rmenu_verify_function_{label.lower()}"
+            setattr(self.editwin, attr_name, verify_state_return_wrap)
+
+            entry = (label, event_name, attr_name)
+        self.editwin.rmenu_specs.append(entry)
 
     @classmethod
     def ensure_bindings_exist(cls) -> bool:

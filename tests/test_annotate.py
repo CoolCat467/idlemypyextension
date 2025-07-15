@@ -27,11 +27,6 @@ def mock_extension_log() -> Generator[MagicMock, None, None]:
             yield mock_log
 
 
-def test_parse_error() -> None:
-    with pytest.raises(annotate.ParseError, match=""):
-        raise annotate.ParseError()
-
-
 @pytest.mark.parametrize(
     ("text", "expect"),
     [("  waf", 2), ("cat", 0), ("     fish", 5), ("   ", 3), ("", 0)],
