@@ -799,15 +799,17 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         """Return result from dmypy inspect."""
         if await self.ensure_daemon_running():
             command = " ".join(
-                (
+                x
+                for x in (
                     "dmypy",
                     f"--status-file='{self.status_file}'",
                     "inspect",
                     f"--show={show!r}",
-                    "--include-span",
+                    ("--include-span" if include_span else ""),
                     "--force-reload",
                     f"{location!r}",
-                ),
+                )
+                if x
             )
             debug(f"{command = }")
 
