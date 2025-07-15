@@ -37,7 +37,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Final, Literal
 
 from idlemypyextension import annotate, client, tktrio, utils
-from idlemypyextension.result import Result
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -825,16 +824,18 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         self,
         show: Literal["type", "attrs", "definition"],
         include_span: bool,
-    ) -> Result[str] | Result[tuple[str, str, int]]:
+    ) -> (
+        tuple[Literal[False], str] | tuple[Literal[True], tuple[str, str, int]]
+    ):
         """Shared dmypy inspect code, return either fail string or success (output, file, line_no)."""
         # needed_save = not self.files.get_saved()
         init_return, file = self.initial()
 
         if init_return is not None:
-            return Result.fail(init_return)
+            return False, init_return
 
         if file is None:
-            return Result.fail("break")
+            return False, "break"
 
         sel_start, sel_end = utils.get_selected_text_indexes(self.text)
 
@@ -853,29 +854,29 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             with utils.undo_block(self.undo):
                 self.add_errors(file, start_line, errors)
             self.text.bell()
-            return Result.fail("break")
+            return False, "break"
 
         output = result["out"]
         if result.get("status"):
             with utils.undo_block(self.undo):
                 self.add_errors(file, start_line, output)
-            return Result.fail("break")
+            return False, "break"
 
-        return Result.ok((output, file, start_line))
+        return True, (output, file, start_line)
 
     async def dmypy_inspect_type_event_async(self, event: Event[Misc]) -> str:
         """Perform dmypy inspect type from right click menu."""
-        maybe_response = await self.dmypy_inspect_shared(
+        success, maybe_response = await self.dmypy_inspect_shared(
             show="type",
             include_span=True,
         )
-        if not maybe_response:
-            value = maybe_response.unwrap()
+        if not success:
+            value = maybe_response
             assert not isinstance(value, tuple)
             # Failed somehow
             return value
 
-        response_tuple = maybe_response.unwrap()
+        response_tuple = maybe_response
         assert isinstance(response_tuple, tuple)
         response, file, start_line = response_tuple
 
@@ -898,17 +899,17 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         event: Event[Misc],
     ) -> str:
         """Perform dmypy inspect definition from right click menu."""
-        maybe_response = await self.dmypy_inspect_shared(
+        success, maybe_response = await self.dmypy_inspect_shared(
             show="definition",
             include_span=False,
         )
-        if not maybe_response:
-            value = maybe_response.unwrap()
+        if not success:
+            value = maybe_response
             assert not isinstance(value, tuple)
             # Failed somehow
             return value
 
-        response_tuple = maybe_response.unwrap()
+        response_tuple = maybe_response
         assert isinstance(response_tuple, tuple)
         raw_locations, file, start_line = response_tuple
 
