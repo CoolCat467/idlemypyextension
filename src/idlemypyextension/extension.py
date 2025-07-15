@@ -213,6 +213,24 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
                 return self.get_async(as_async)
         return super().__getattribute__(attr_name)
 
+    def update_task_status(self, ignore: set[str] | None = None) -> None:
+        """Update async task statusbar entry."""
+        display = ""
+        if hasattr(self.triorun, "nursery"):
+            child_tasks = self.triorun.nursery.child_tasks
+            task_names = {task.name.rsplit(".", 1)[-1] for task in child_tasks}
+            if ignore:
+                task_names -= ignore
+            if task_names:
+                tasks = (
+                    name.removesuffix("_async").removesuffix("_event")
+                    for name in sorted(task_names)
+                )
+                tasks = (" ".join(name.split("_")).title() for name in tasks)
+                plural = "s" if len(task_names) > 1 else ""
+                display = f"Async task{plural}: {', '.join(tasks)}"
+        self.editwin.status_bar.set_label("asyncstatus", display, side="right")
+
     def get_async(
         self,
         name: str,
@@ -222,9 +240,18 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         # Type of decorated function contains type `Any`
         @wraps(async_function)
+        async def task_status_wrap(event: Event[Misc]) -> None:  # type: ignore[misc]
+            self.update_task_status()
+            try:
+                await async_function(event)
+            finally:
+                self.update_task_status({name})
+
+        # Type of decorated function contains type `Any`
+        @wraps(async_function)
         @utils.log_exceptions
         def call_trio(event: Event[Misc]) -> str:  # type: ignore[misc]
-            self.triorun(partial(async_function, event))
+            self.triorun(partial(task_status_wrap, event))
             return "break"
 
         return call_trio
