@@ -35,6 +35,9 @@ of text selected, it will tell you about the type of only that span.
 - In the right click menu, you can go to the definition of the object
 your cursor is currently selecting.
 
+- In the right click menu, you can view the attributes mypy knows about
+of the object your cursor is currently selecting.
+
 Note: On use, creates folder `mypy` within the idle user directory.
 On Linux systems, this is usually `~/.idlerc/mypy`.
 
