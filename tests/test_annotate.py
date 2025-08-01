@@ -181,6 +181,7 @@ def test_list_or(items: Collection[str], result: str) -> None:
                 annotate.DottedName("int"),
                 annotate.Separator("|"),
                 annotate.DottedName("float"),
+                annotate.End(),
             ],
         ),
     ],
