@@ -175,6 +175,14 @@ def test_list_or(items: Collection[str], result: str) -> None:
                 annotate.End(),
             ],
         ),
+        (
+            "int | float",
+            [
+                annotate.DottedName("int"),
+                annotate.Separator("|"),
+                annotate.DottedName("float"),
+            ],
+        ),
     ],
 )
 def test_tokenize(text: str, tokens: list[annotate.Token]) -> None:

@@ -176,7 +176,7 @@ def tokenize(txt: str) -> list[Token]:
             return tokens
         if txt[0] in {" ", "\n"}:
             txt = txt[1:]
-        elif txt[0] in "()[],*":
+        elif txt[0] in "()[],*|":
             tokens.append(Separator(txt[0]))
             txt = txt[1:]
         elif txt[:2] == "->":
@@ -983,7 +983,7 @@ def run(annotation: dict[str, object]) -> None:  # pragma: nocover
                     return line_text
             raise EOFError
 
-    print(f"{get_annotation(annotation, get_line)!r}")
+    print(f"{get_annotation(annotation, get_line)[0]}")
 
 
 if __name__ == "__main__":  # pragma: nocover
