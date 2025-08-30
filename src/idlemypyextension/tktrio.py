@@ -291,7 +291,7 @@ class TkTrioRunner:
         self.installed_proto_override = False
 
         with contextlib.suppress(AttributeError):
-            hold_global_object.__trio__ = weakref.ref(self)  # type: ignore[attr-defined]
+            hold_global_object.__trio__ = weakref.ref(self)  # type: ignore[union-attr]
 
         self.thread_runner = ThreadRunner()
 
