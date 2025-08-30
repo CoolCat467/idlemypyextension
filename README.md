@@ -106,6 +106,10 @@ definition
 `timeout_mins` controls how long the mypy daemon will time out after,
 in minutes.
 
+`should_restart_always` toggles if extension should restart dmypy daemon
+before every run. May be helpful in some cases because of issues with
+errors not being reported on subsequent runs.
+
 ## Annotating files from mypy error logs
 I kept running into cases a lot where CI systems generate mypy error logs, and
 I needed to fix those errors with my local copy. If you copy all the mypy

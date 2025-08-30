@@ -193,6 +193,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         "suggest_replace": "False",
         "timeout_mins": "30",
         "action_max_sec": "None",
+        "should_restart_always": "False",
     }
     # Default key binds for configuration file
     bind_defaults: ClassVar[dict[str, str | None]] = {
@@ -212,6 +213,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
     suggest_replace = "False"
     timeout_mins = "30"
     action_max_sec = "None"
+    should_restart_always = "False"
 
     # Class attributes
     idlerc_folder = Path(idleConf.userdir).expanduser().absolute()
@@ -538,7 +540,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
     async def shutdown_dmypy_daemon_event_async(
         self,
-        event: Event[Misc],
+        event: Event[Misc] | None = None,
     ) -> str:
         """Shutdown dmypy daemon event handler."""
         # pylint: disable=unused-argument
@@ -559,6 +561,8 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
     async def check(self, file: str) -> client.Response:
         """Perform dmypy check."""
+        if self.should_restart_always != "False":
+            await self.shutdown_dmypy_daemon_event_async()
         if not await self.ensure_daemon_running():
             return COULD_NOT_START_ERROR
         ##flags = self.flags

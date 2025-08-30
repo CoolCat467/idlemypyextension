@@ -243,7 +243,7 @@ async def _request_win32(
                 response = await _receive(async_client)
                 final = bool(response.pop("final", False))
                 all_responses.append(response)
-                debug(f"{response = }")
+                # debug(f"{response = }")
         # if len(all_responses) > 1:
         #    debug(f"request win32 {all_responses = }")
         return cast("Response", dict(ChainMap(*all_responses).items()))  # type: ignore[arg-type]
@@ -308,7 +308,7 @@ async def _request_linux(
 
             is_not_done = not bool(response.pop("final", False))
             all_responses.append(response)
-            debug(f"{response = }")
+            # debug(f"{response = }")
     # if len(all_responses) > 1:
     #    debug(f"request linux {all_responses = }")
     return cast("Response", dict(ChainMap(*all_responses).items()))  # type: ignore[arg-type]
