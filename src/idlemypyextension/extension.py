@@ -230,7 +230,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         self.triorun = tktrio.TkTrioRunner(
             self.editwin.top,
-            self.flist,
+            # self.flist,
             restore_close=self.editwin.close,
         )
 

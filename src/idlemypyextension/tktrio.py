@@ -244,22 +244,22 @@ class TkTrioRunner:
     def __new__(
         cls,
         root: tk.Toplevel | tk.Tk,
-        hold_global_object: object | None,
+        # hold_global_object: object | None,
         *args: Any,
         **kwargs: Any,
     ) -> Self:
         """Either return new instance or get existing runner from root."""
         if not is_tk_wm_and_misc_subclass(root):
             raise ValueError("Must be subclass of both tk.Misc and tk.Wm")
-        if hold_global_object is None:
-            hold_global_object = root
+        # if hold_global_object is None:
+        hold_global_object = root
         ref = getattr(hold_global_object, "__trio__", None)
 
         if ref is not None:
             instance = ref()
             if instance is not None:
                 print(
-                    f"[{__title__}]: {cls.__name__}: Loaded instance from hold_global_object",
+                    f"[{__name__}]: {cls.__name__}: Loaded instance from hold_global_object",
                 )
                 if TYPE_CHECKING:
                     assert isinstance(instance, cls)
@@ -270,12 +270,12 @@ class TkTrioRunner:
     def __init__(
         self,
         root: tk.Toplevel | tk.Tk,
-        hold_global_object: object | None = None,
+        # hold_global_object: object | None = None,
         restore_close: Callable[[], Any] | None = None,
     ) -> None:
         """Initialize trio runner."""
-        if hold_global_object is None:
-            hold_global_object = root
+        # if hold_global_object is None:
+        hold_global_object = root
         if (
             hasattr(hold_global_object, "__trio__")
             and getattr(hold_global_object, "__trio__", lambda: None)()
