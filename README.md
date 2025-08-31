@@ -124,6 +124,10 @@ which will open a blank IDLE window, hook into `idlemypyextension`, have it
 add annotations to all files referenced in error log file, and then close
 that temporary blank window, leaving all the files with errors still open.
 
+If for some reason you need to run plain mypy instead of dmypy, you can do
+```bash
+mypy | idlemypyextension -
+```
 
 ### Links
 * Source Code - https://github.com/CoolCat467/idlemypyextension.git
