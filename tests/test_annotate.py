@@ -196,7 +196,7 @@ def test_tokenize(text: str, tokens: list[annotate.Token]) -> None:
 def test_invalid_tokenize() -> None:
     with pytest.raises(
         annotate.ParseError,
-        match="Could not parse '\\$HOME' from 'path.\\$HOME'",
+        match="Could not parse '\\$HOME' from 'path\\.\\$HOME'",
     ):
         annotate.tokenize("path.$HOME")
 

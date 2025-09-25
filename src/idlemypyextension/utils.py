@@ -888,7 +888,7 @@ class BaseExtension:
         Changes are wrapped in an undo block.
         """
         # Get selected region lines
-        head, _tail, chars, lines = self.formatter.get_region()
+        head, _tail, _chars, lines = self.formatter.get_region()
         region_start, _col = get_line_col(head)
 
         edited = False

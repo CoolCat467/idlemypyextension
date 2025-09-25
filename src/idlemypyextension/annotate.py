@@ -480,7 +480,10 @@ def tokenize_definition(
                 tokens.append(ArgumentDefault(previous + string))
             else:
                 tokens.append(ArgumentDefault(string))
-        elif tok_name[token.type] == "INDENT":  # pragma: nocover
+        elif (
+            tok_name[token.type] == "INDENT"
+            or tok_name[token.type] == "DEDENT"
+        ):  # pragma: nocover
             tokens.append(EndSeparator(string))
         elif tok_name[token.type] == "FSTRING_START":
             tokens.append(

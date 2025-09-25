@@ -63,7 +63,7 @@ def debug(message: object) -> None:
     ##as_str = as_str.replace(home_directory, "~")
     ##as_str = as_str.replace(username, "<username>")
 
-    print(f"\n[{__title__}] DEBUG: {as_str}")
+    print(f"\n[{__name__}] DEBUG: {as_str}")
 
 
 MYPY_ERROR_TYPE: Final = re.compile(r"  \[([a-z\-]+)\]\s*$")
@@ -531,12 +531,16 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             if x
         )
         debug(f"{command = }")
-        return await client.start(
-            self.status_file,
-            flags=self.flags,
-            daemon_timeout=self.daemon_timeout,
-            log_file=self.log_file,
-        )
+        try:
+            return await client.start(
+                self.status_file,
+                flags=self.flags,
+                daemon_timeout=self.daemon_timeout,
+                log_file=self.log_file,
+            )
+        except (Exception, SystemExit) as exc:
+            utils.extension_log_exception(exc)
+            return False
 
     async def shutdown_dmypy_daemon_event_async(
         self,
@@ -932,7 +936,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         response_tuple = maybe_response
         assert isinstance(response_tuple, tuple)
-        raw_locations, file, start_line = response_tuple
+        raw_locations, _file, _start_line = response_tuple
 
         # Just read first one
         raw_location = raw_locations.splitlines()[0]
