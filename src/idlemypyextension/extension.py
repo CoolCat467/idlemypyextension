@@ -47,9 +47,10 @@ if TYPE_CHECKING:
 DAEMON_TIMEOUT_MIN: Final = 5
 ACTION_TIMEOUT_MIN: Final = 5
 UNKNOWN_FILE: Final = "<unknown file>"
-COULD_NOT_START_ERROR = client.Response(
+COULD_NOT_START_ERROR: Final = client.Response(
     {"out": "", "err": "Error: Could not start mypy daemon"},
 )
+MYPY_ERROR_TYPE: Final = re.compile(r"  \[([a-z\-]+)\]\s*$")
 
 
 def debug(message: object) -> None:
@@ -64,9 +65,6 @@ def debug(message: object) -> None:
     ##as_str = as_str.replace(username, "<username>")
 
     print(f"\n[{__name__}] DEBUG: {as_str}")
-
-
-MYPY_ERROR_TYPE: Final = re.compile(r"  \[([a-z\-]+)\]\s*$")
 
 
 def parse_comments(

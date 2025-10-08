@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import sys
+from typing import Final
+
 import pytest
 
 from idlemypyextension import utils
+
+IS_WINDOWS: Final = sys.platform == "win32"
 
 
 def test_get_required_config() -> None:
@@ -81,3 +86,140 @@ def test_get_whole_line(index: str, offset: int, expect: str) -> None:
 )
 def test_get_line_indent(text: str, expect: int) -> None:
     assert utils.get_line_indent(text, " ") == expect
+
+
+@pytest.mark.skipif(
+    IS_WINDOWS,
+    reason="Skipping Unix-specific tests on Windows",
+)
+def test_fileposition_parse_unix() -> None:
+    assert utils.FilePosition.parse(
+        "src/idleopenline/utils.py:59",
+    ) == utils.FilePosition("src/idleopenline/utils.py", 59, 0, 59, 0)
+    assert utils.FilePosition.parse(
+        "src/idleopenline/utils.py:59:43",
+    ) == utils.FilePosition(
+        "src/idleopenline/utils.py",
+        59,
+        43,
+        59,
+        43,
+    )
+    assert utils.FilePosition.parse(
+        "src/idleopenline/utils.py:59:43:60",
+    ) == utils.FilePosition(
+        "src/idleopenline/utils.py",
+        59,
+        43,
+        59,
+        43,
+    )
+    assert utils.FilePosition.parse(
+        "src/idleopenline/utils.py:59:43:60:48",
+    ) == utils.FilePosition(
+        "src/idleopenline/utils.py",
+        59,
+        43,
+        60,
+        48,
+    )
+    assert utils.FilePosition.parse(
+        "src/idleopenline/utils.py:59:43:60:48:103",
+    ) == utils.FilePosition(
+        "src/idleopenline/utils.py",
+        59,
+        43,
+        60,
+        48,
+    )
+
+
+@pytest.mark.skipif(
+    not IS_WINDOWS,
+    reason="Skipping Windows-specific tests on non-Windows platforms",
+)
+def test_fileposition_parse_windows() -> None:
+    assert utils.FilePosition.parse(
+        "C:\\path\\to\\file.py:59",
+    ) == utils.FilePosition("C:\\path\\to\\file.py", 59, 0, 59, 0)
+    assert utils.FilePosition.parse(
+        "C:\\path\\to\\file.py:59:43",
+    ) == utils.FilePosition(
+        "C:\\path\\to\\file.py",
+        59,
+        43,
+        59,
+        43,
+    )
+    assert utils.FilePosition.parse(
+        "C:\\path\\to\\file.py:59:43:60",
+    ) == utils.FilePosition(
+        "C:\\path\\to\\file.py",
+        59,
+        43,
+        59,
+        43,
+    )
+    assert utils.FilePosition.parse(
+        "C:\\path\\to\\file.py:59:43:60:48",
+    ) == utils.FilePosition(
+        "C:\\path\\to\\file.py",
+        59,
+        43,
+        60,
+        48,
+    )
+    assert utils.FilePosition.parse(
+        "C:\\path\\to\\file.py:59:43:60:48:103",
+    ) == utils.FilePosition(
+        "C:\\path\\to\\file.py",
+        59,
+        43,
+        60,
+        48,
+    )
+
+
+def test_fileposition_is_range() -> None:
+    assert not utils.FilePosition(
+        "src/idleopenline/utils.py",
+        59,
+        0,
+        59,
+        0,
+    ).is_range()
+    assert not utils.FilePosition(
+        "src/idleopenline/utils.py",
+        59,
+        43,
+        59,
+        43,
+    ).is_range()
+    assert utils.FilePosition(
+        "src/idleopenline/utils.py",
+        59,
+        43,
+        60,
+        48,
+    ).is_range()
+    assert utils.FilePosition(
+        "src/idleopenline/utils.py",
+        59,
+        43,
+        59,
+        48,
+    ).is_range()
+    assert utils.FilePosition(
+        "src/idleopenline/utils.py",
+        59,
+        43,
+        60,
+        43,
+    ).is_range()
+    assert utils.FilePosition(
+        "src/idleopenline/utils.py",
+        59,
+        43,
+        60,
+        48,
+    ).is_range()

@@ -33,7 +33,7 @@ classifiers = [
 ]
 keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
-    "mypy[dmypy]>=1.17.0",
+    "mypy[dmypy]>=1.18.2",
     'orjson>=3.10.18',
     "trio>=0.30.0",
 ]
@@ -98,6 +98,9 @@ disable_all_dunder_policy = true
 
 [tool.typos]
 files.extend-exclude = ["*.pyi"]
+default.extend-ignore-re = [
+    "(?Rm)^.*(#|//)\\s*spellchecker:disable-line$",
+]
 
 [tool.black]
 line-length = 79
@@ -157,15 +160,6 @@ extend-ignore = [
     "D100",  # undocumented-public-module
     "D103",  # undocumented-public-function
     "D107",  # undocumented-public-init
-]
-"stubs/*" = [
-    "A001",  # builtin-variable-shadowing
-    "A002",  # builtin-argument-shadowing
-    "N802",  # invalid-function-name (lowercase)
-    "N803",  # invalid-argument-name (lowercase)
-    "N815",  # mixed-case-variable-in-class-scope
-    "N816",  # mixed-case-variable-in-global-scope
-    "N818",  # error-suffix-on-exception-name
 ]
 
 [tool.pytest.ini_options]

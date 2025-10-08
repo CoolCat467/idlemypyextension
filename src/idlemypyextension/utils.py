@@ -401,6 +401,21 @@ def log_exceptions(function: Callable[PS, T]) -> Callable[PS, T]:
     return wrapper
 
 
+def log_exceptions_catch(function: Callable[PS, T]) -> Callable[PS, T | None]:
+    """Log and catch any exceptions raised."""
+
+    @wraps(function)
+    def wrapper(*args: PS.args, **kwargs: PS.kwargs) -> T | None:
+        """Catch Exceptions, log them to log file. Return None on error."""
+        try:
+            return function(*args, **kwargs)
+        except Exception as exc:
+            extension_log_exception(exc)
+            return None
+
+    return wrapper
+
+
 class Comment(NamedTuple):
     """Represents one comment."""
 
@@ -466,7 +481,7 @@ class FilePosition(NamedTuple):
         if sys.platform == "win32":
             windows_drive_letter, file_position = file_position.split(":", 1)
             windows_drive_letter += ":"
-        position = file_position.split(":", 5)
+        position = file_position.rsplit(":", 5)
 
         filename = position[0]
         if len(position) > 1:
@@ -491,6 +506,25 @@ class FilePosition(NamedTuple):
             line_end=line_end,
             col_end=col_end,
         )
+
+    def serialize(self) -> str:
+        """Return file position as string."""
+        if self.is_range():
+            return f"{self.path}:{self.line}:{self.col}:{self.line_end}:{self.col_end}"
+        if self.col != 0:
+            return f"{self.path}:{self.line}:{self.col}"
+        return f"{self.path}:{self.line}"
+
+    @classmethod
+    def from_editor_current(cls, editwin: PyShellEditorWindow) -> Self | None:
+        """Return file position from editwin current position."""
+        current_filename = editwin.io.filename
+        if current_filename is None:
+            return None
+        current_filename = str(Path(current_filename).absolute())
+        selected = get_selected_text_indexes(editwin.text)
+        select_string = (":".join(selected)).replace(".", ":")
+        return cls.parse(f"{current_filename}:{select_string}")
 
 
 class BaseExtension:
