@@ -166,6 +166,50 @@ async def _read_status(
     return data
 
 
+async def _write_status(
+    status_file: str | os.PathLike[str],
+    data: dict[str, object],
+) -> None:
+    """Write status file.
+
+    Does not create parent directory structure.
+    """
+    path = trio.Path(status_file)
+    await path.write_bytes(orjson.dumps(data))
+
+
+async def add_status_init_cwd(
+    status_file: str | os.PathLike[str],
+    current_working_directory: str | os.PathLike[str] | None,
+) -> None:
+    """Add current working directory to mypy daemon status file.
+
+    current_working_directory should be an absolute path or None.
+    If None, deletes `init_cwd` key.
+
+    Raise BadStatusError if the status file doesn't exist or contains
+    invalid JSON or the JSON is not a dict.
+    """
+    current = await _read_status(status_file)
+    if current_working_directory is not None:
+        current["init_cwd"] = str(current_working_directory)
+    else:
+        current["init_cwd"] = None
+        del current["init_cwd"]
+    await _write_status(status_file, current)
+
+
+async def get_status_init_cwd(
+    status_file: str | os.PathLike[str],
+) -> str | None:
+    """Return current working directory mypy daemon was initialized with."""
+    current = await _read_status(status_file)
+    init_cwd = current.get("init_cwd")
+    if init_cwd is not None:
+        return str(init_cwd)
+    return None
+
+
 def _check_status(data: dict[str, object]) -> tuple[int, str]:
     """Check if the process is alive.
 
@@ -421,7 +465,12 @@ async def _start_server(
         != 0
     ):
         return False
-    return await _wait_for_server(status_file)
+    server_running = await _wait_for_server(status_file)
+    if server_running:
+        # If server started properly, add current working directory
+        # daemon was started with to the status file.
+        await add_status_init_cwd(status_file, await trio.Path.cwd())
+    return server_running
 
 
 async def restart(

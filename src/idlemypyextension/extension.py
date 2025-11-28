@@ -26,7 +26,6 @@ __license__ = "GNU General Public License Version 3"
 
 import contextlib
 import math
-import os
 import re
 import sys
 import traceback
@@ -402,12 +401,12 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         Changes are wrapped in an undo block.
         """
-        default_file = UNKNOWN_FILE
+        default_file: str = UNKNOWN_FILE
         if self.files.filename is not None:
-            default_file = os.path.abspath(self.files.filename)
+            default_file = str(Path(self.files.filename).absolute())
 
         if only_filename is not None:
-            only_filename = os.path.abspath(only_filename)
+            only_filename = str(Path(only_filename).absolute())
 
         file_comments = parse_comments(
             mypy_output,
@@ -561,7 +560,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         return "break"
 
-    async def check(self, file: str) -> client.Response:
+    async def check(self, file: Path) -> client.Response:
         """Perform dmypy check."""
         if self.should_restart_always != "False":
             await self.shutdown_dmypy_daemon_event_async()
@@ -598,11 +597,19 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         ##    log_file=self.log_file,
         ##    export_types=True,
         ##)
-        command = f"dmypy --status-file='{self.status_file}' check --export-types {file!r}"
+        init_cwd = await client.get_status_init_cwd(self.status_file)
+        if init_cwd is not None and file.is_relative_to(init_cwd):
+            relative_file = file.relative_to(init_cwd)
+        else:
+            relative_file = file
+            ### Delete `init_cwd` key to avoid KeyError crash in
+            ### mypy generate_unused_ignore_errors
+            ##await client.add_status_init_cwd(self.status_file, None)
+        command = f"dmypy --status-file='{self.status_file}' check --export-types {str(relative_file)!r}"
         debug(f"{command = }")
         return await client.check(
             self.status_file,
-            files=[file],
+            files=[str(relative_file)],
             timeout=self.action_timeout,
             export_types=True,
         )
@@ -671,7 +678,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         return errors if errors else None
 
-    async def suggest(self, file: str, line: int) -> None:
+    async def suggest(self, file: str | Path, line: int) -> None:
         """Perform dmypy suggest."""
         if await self.ensure_daemon_running():
             function = f"{file}:{line}"
@@ -699,7 +706,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         if errors := self.get_response_errors(response):
             # Display errors
             # self.editwin.getlineno()
-            self.add_errors(file, line, errors)
+            self.add_errors(str(file), line, errors)
             self.text.bell()
             return
 
@@ -759,7 +766,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         self.editwin.gotoline(line)
         self.text.bell()
 
-    def initial(self) -> tuple[str | None, str | None]:
+    def initial(self) -> tuple[str | None, Path | None]:
         """Do common initial setup. Return error or none, file.
 
         Reload configuration, make sure file is saved,
@@ -772,7 +779,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         raw_filename: str | None = self.files.filename
         if raw_filename is None:
             return "break", None
-        file: str = os.path.abspath(raw_filename)
+        file = Path(raw_filename).absolute()
 
         # Make sure file is saved.
         if not self.files.get_saved():
@@ -849,7 +856,8 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         show: Literal["type", "attrs", "definition"],
         include_span: bool,
     ) -> (
-        tuple[Literal[False], str] | tuple[Literal[True], tuple[str, str, int]]
+        tuple[Literal[False], str]
+        | tuple[Literal[True], tuple[str, Path, int]]
     ):
         """Shared dmypy inspect code, return either fail string or success (output, file, line_no)."""
         # needed_save = not self.files.get_saved()
@@ -876,14 +884,14 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             # Display errors
             # self.editwin.getlineno()
             with utils.undo_block(self.undo):
-                self.add_errors(file, start_line, errors)
+                self.add_errors(str(file), start_line, errors)
             self.text.bell()
             return False, "break"
 
         output = result["out"]
         if result.get("status"):
             with utils.undo_block(self.undo):
-                self.add_errors(file, start_line, output)
+                self.add_errors(str(file), start_line, output)
             return False, "break"
 
         return True, (output, file, start_line)
@@ -904,7 +912,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         assert isinstance(response_tuple, tuple)
         response, file, start_line = response_tuple
 
-        comments = parse_type_inspect(response, file, start_line)
+        comments = parse_type_inspect(response, str(file), start_line)
 
         for index, comment in enumerate(tuple(comments)):
             pointer = self.get_pointers([comment])
@@ -979,7 +987,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         comments: list[utils.Comment] = []
 
-        for comment in parse_type_inspect(response, file, start_line):
+        for comment in parse_type_inspect(response, str(file), start_line):
             pointer = self.get_pointers([comment])
             contents = comment.contents
             data = orjson.loads(contents)
@@ -987,7 +995,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             for type_, attributes in data.items():
                 lines.append(
                     utils.Comment(
-                        file=file,
+                        file=str(file),
                         line=start_line + 1,
                         contents=f"type {type_}:",
                     ),
@@ -995,7 +1003,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
                 for attr in attributes:
                     lines.append(
                         utils.Comment(
-                            file=file,
+                            file=str(file),
                             line=start_line + 1,
                             contents=f"    {attr}",
                         ),
@@ -1069,7 +1077,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         # Run mypy on open file
         response = await self.check(file)
 
-        self.type_check_add_response_comments(response, file)
+        self.type_check_add_response_comments(response, str(file))
         return "break"
 
     @utils.log_exceptions
