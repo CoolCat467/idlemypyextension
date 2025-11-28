@@ -45,3 +45,4 @@ repos:
     rev: v1.17.0
     hooks:
       - id: zizmor
+        args: ["--no-progress", "--fix"]
