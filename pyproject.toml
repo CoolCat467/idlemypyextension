@@ -33,9 +33,9 @@ classifiers = [
 ]
 keywords = ["mypy", "dmypy", "idle", "extension", "development", "daemon"]
 dependencies = [
-    "mypy[dmypy]>=1.18.2",
+    "mypy[dmypy]>=1.19.0",
     'orjson>=3.10.18',
-    "trio>=0.30.0",
+    "trio>=0.32.0",
 ]
 
 [tool.setuptools.dynamic]
@@ -88,6 +88,7 @@ local_partial_types = true
 no_implicit_optional = true
 strict = true
 warn_unreachable = true
+fixed_format_cache = true
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

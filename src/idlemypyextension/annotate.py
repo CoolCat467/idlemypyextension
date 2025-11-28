@@ -33,7 +33,13 @@ from typing import TYPE_CHECKING, Any, Final, NamedTuple, NoReturn
 from idlemypyextension.utils import extension_log, extension_log_exception
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Collection, Generator, Sequence
+    from collections.abc import (
+        Callable,
+        Collection,
+        Generator,
+        Iterable,
+        Sequence,
+    )
 
 TYPING_LOWER: Final = {"List", "Set", "Type", "Dict", "Tuple", "Overload"}
 
@@ -186,7 +192,6 @@ def tokenize(txt: str) -> list[Token]:
             tokens.append(DottedName("..."))
             txt = txt[3:]
         else:
-            # match_ = re.match(r"[-\w`]+(\s*(\.|:)\s*[-/\w]*)*", txt)
             match_ = TOKENIZE_PATTERN.match(txt)
             if not match_:
                 raise ParseError(f"Could not parse {txt!r} from {original!r}")
@@ -226,7 +231,8 @@ def read_lambda(
     """Return lambda body text and if had over read error."""
     text = []
 
-    brackets = 0  # Current number of brackets in use
+    # Current number of brackets in use
+    brackets = 0
     has_args = False
 
     for token in generator:
@@ -266,7 +272,7 @@ def read_lambda(
 
 def read_fstring(
     starting_token: TokenInfo,
-    generator: Generator[TokenInfo, None, None],
+    generator: Iterable[TokenInfo],
 ) -> str:
     """Return f-string text."""
     text = [starting_token.string]
@@ -317,18 +323,19 @@ def tokenize_definition(
         if tok_name[token.type] == "NAME":
             if string == "async":  # Remember async
                 tokens.append(Keyword(string))
-            elif (
-                string == "def"
-            ):  # Error if more than one in case invalid start
+            elif string == "def":
+                # Error if more than one in case invalid start
                 if hasdef:
                     raise ParseError(
-                        "Did not expect second definition keyword",
+                        f"Did not expect second definition keyword (line {current_line_no})",
                     )
                 tokens.append(Definition(string))
                 hasdef = True  # Have definition now
-            elif not defstart:  # If not started definition, only function name
+            elif not defstart:
+                # If not started definition, only function name
                 tokens.append(FunctionName(string))
-            elif typedef:  # If we are doing type definition, add DottedName
+            elif typedef:
+                # If we are doing type definition, add DottedName
                 # If last was also a DottedName and it ended with a dot,
                 # instead add name text to previous
                 if (
@@ -381,13 +388,12 @@ def tokenize_definition(
                 # If doing a type definition, we have typedef level
                 if typedef:
                     typedef += 1
-                # if default_arg:
-                #     default_arg += 1
                 tokens.append(EndSeparator(string))  # No spaces
             elif string in ")]}":
                 # Left a bracket level
                 brackets -= 1
-                if typedef:  # Maybe left a type def level too
+                if typedef:
+                    # Maybe left a type def level too
                     typedef -= 1
                 if default_arg:
                     default_arg -= 1
@@ -415,9 +421,11 @@ def tokenize_definition(
                     break
                 tokens.append(TypeDef(string))
                 typedef = 1
-            elif string == "=":  # Defining a default definition
+            elif string == "=":
+                # Defining a default definition
                 tokens.append(DefaultDef(string))
-                typedef = 0  # shouldn't be defining type but make sure
+                # shouldn't be defining type but make sure
+                typedef = 0
                 default_arg = 1
             elif string in {"-", "+", "~"}:  # Unary operators
                 # Add on to previous ArgumentDefault if it exists
@@ -460,7 +468,9 @@ def tokenize_definition(
             elif string == "...":  # Ellipsis constant
                 tokens.append(DottedName(string))
             else:  # pragma: no cover
-                raise ParseError(f"Exhaustive list of OP failed: {string!r}")
+                raise ParseError(
+                    f"Exhaustive list of OP failed: {string!r} (line {current_line_no})",
+                )
         elif tok_name[token.type] in {"NL", "NEWLINE"}:
             # replace separator ends with end separators
             if tokens and isinstance(tokens[-1], Separator):
@@ -497,7 +507,7 @@ def tokenize_definition(
         else:  # pragma: nocover
             debug(f"{token = }")
             raise ParseError(
-                f"Unrecognized token type {tok_name[token.type]!r}",
+                f"Unrecognized token type {tok_name[token.type]!r} (line {current_line_no})",
             )
         # print(tokens[-1])
     # print(tokens[-1])
@@ -539,7 +549,7 @@ def get_typevalue_repr(
         return "[]"
     if name == "Union":
         return " | ".join(args)
-    if name == "__hacks_DictItem":
+    if name == "__hacks_xxyyzz_DictItem":
         return ": ".join(args)
     values = ", ".join(args)
     return f"{name}[{values}]"
@@ -625,7 +635,10 @@ class Parser:
             if which == 1:  # dict
                 self.expect(":")
                 types.append(
-                    TypeValue("__hacks_DictItem", (type_, self.parse_type())),
+                    TypeValue(
+                        "__hacks_xxyyzz_DictItem",
+                        (type_, self.parse_type()),
+                    ),
                 )
             if which == 2:  # set
                 types.append(type_)
