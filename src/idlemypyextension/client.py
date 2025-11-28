@@ -175,7 +175,7 @@ async def _write_status(
     Does not create parent directory structure.
     """
     path = trio.Path(status_file)
-    await path.write_bytes(orjson.dumps(data))
+    await path.write_bytes(orjson.dumps(data) + b"\n")
 
 
 async def add_status_init_cwd(
@@ -455,6 +455,7 @@ async def _start_server(
         Server shutdown timeout (in seconds)
     """
     start_options = _process_start_options(flags, allow_sources)
+    # print(f'[{__name__}] {start_options.snapshot() = }')
     if (
         _daemonize(
             start_options,
