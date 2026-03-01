@@ -676,7 +676,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         if "out" not in response and not errors:
             errors += "No response from dmypy daemon."
 
-        return errors if errors else None
+        return errors or None
 
     async def suggest(self, file: str | Path, line: int) -> None:
         """Perform dmypy suggest."""
