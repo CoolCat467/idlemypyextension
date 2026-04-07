@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 # moduleguard - Guard import(s) from IDLE interfering with system path.
-# Copyright (C) 2023  CoolCat467
+# Copyright (C) 2023-2026  CoolCat467
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -23,9 +23,7 @@ from __future__ import annotations
 __title__ = "moduleguard"
 __author__ = "CoolCat467"
 __license__ = "GNU General Public License Version 3"
-__version__ = "0.0.0"
 
-import json
 import os
 import sys
 from typing import TYPE_CHECKING
@@ -105,7 +103,7 @@ class ImportGuardContextManager:
     def __init__(self, modules: set[str]) -> None:
         """Initialize modules set."""
         self.modules = modules
-        self.original: list[str] = []
+        self.original: tuple[str, ...]
 
         bad_modules = ", ".join(modules & set(sys.builtin_module_names))
         if bad_modules:
@@ -119,8 +117,8 @@ class ImportGuardContextManager:
 
     def __enter__(self) -> Self:
         """Modify sys.path to remove interference."""
-        # Get deep copy
-        self.original = json.loads(json.dumps(sys.path))
+        # Get copy
+        self.original = tuple(sys.path)
 
         # Remove blanks
         index = 0
