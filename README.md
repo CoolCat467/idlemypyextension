@@ -106,9 +106,17 @@ definition
 `timeout_mins` controls how long the mypy daemon will time out after,
 in minutes.
 
-`should_restart_always` toggles if extension should restart dmypy daemon
-before every run. May be helpful in some cases because of issues with
-errors not being reported on subsequent runs.
+`should_restart_always` toggles if the extension should restart dmypy
+daemon before every run. May be helpful in some cases because of issues
+with errors not being reported on subsequent runs, but this will slow
+things down a lot.
+
+`force_base_ipc_request` toggles if the extension should force using
+mypy's provided inner process communication (IPC) module instead of
+reimplementing IPC messaging but asynchronously from scratch. Note, this
+is only effective on non-windows devices, because the way mypy does IPC
+on windows is really complicated and doesn't have any benefits being
+reimplemented over just using `trio.wrap_file`.
 
 ## Annotating files from mypy error logs
 I kept running into cases a lot where CI systems generate mypy error logs, and
