@@ -191,6 +191,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         "timeout_mins": "30",
         "action_max_sec": "None",
         "should_restart_always": "False",
+        "force_base_ipc_request": "False",
     }
     # Default key binds for configuration file
     bind_defaults: ClassVar[dict[str, str | None]] = {
@@ -211,6 +212,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
     timeout_mins = "30"
     action_max_sec = "None"
     should_restart_always = "False"
+    force_base_ipc_request = "False"
 
     # Class attributes
     idlerc_folder = Path(idleConf.userdir).expanduser().absolute()
@@ -257,6 +259,14 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
                 ),
             ),
         )
+
+    @classmethod
+    def reload(cls) -> None:
+        """Load class variables from configuration."""
+        super().reload()
+
+        # Set client global var based on extension config
+        client.FORCE_BASE_REQUEST = cls.force_base_ipc_request == "True"
 
     def __getattr__(self, attr_name: str) -> object:
         """Transform event async sync calls to sync wrappers."""

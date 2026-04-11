@@ -40,11 +40,11 @@ from __future__ import annotations
 __title__ = "Mypy Daemon Client"
 __license__ = "MIT"
 
-import base64
 import contextlib
+import struct
 import sys
 from collections import ChainMap
-from typing import TYPE_CHECKING, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Final, Literal, TypedDict, cast
 
 import orjson
 
@@ -59,7 +59,11 @@ with guard_imports({"trio", "mypy"}):
         daemonize as _daemonize,
         process_start_options as _process_start_options,
     )
-    from mypy.ipc import IPCClient as _IPCClient, IPCException as _IPCException
+    from mypy.ipc import (
+        HEADER_SIZE,
+        IPCClient as _IPCClient,
+        IPCException as _IPCException,
+    )
     from mypy.version import __version__
 
 if TYPE_CHECKING:
@@ -101,6 +105,14 @@ class Stats(TypedDict):
     sccs_left: int
     nodes_left: int
     cache_commit_time: float
+    type_expression_parse_count: int
+    type_expression_full_parse_success_count: int
+    type_expression_full_parse_failure_count: int
+    load_missing_time: float
+    order_scc_time: float
+    semanal_time: float
+    type_check_time: float
+    flush_and_cache_time: float
 
 
 class Response(TypedDict):
@@ -256,6 +268,11 @@ def _read_request_response_json(request_response: str | bytes) -> Response:
     return cast("Response", data)
 
 
+IPC_CONNECTION_CLOSED_ERROR: Final = Response(
+    {"error": "No data received, IPC socket connection closed."},
+)
+
+
 async def _request_win32(
     name: str,
     request_arguments: bytes,
@@ -273,7 +290,7 @@ async def _request_win32(
         """
         bdata: str = await async_connection.read()
         if not bdata:
-            return {"error": "No data received, IPC socket connection closed."}
+            return IPC_CONNECTION_CLOSED_ERROR
         return _read_request_response_json(bdata)
 
     try:
@@ -295,19 +312,24 @@ async def _request_win32(
         return {"error": str(err)}
 
 
-def find_frame_in_buffer(
+def frame_from_buffer(
     buffer: bytearray,
-) -> tuple[bytearray, bytearray | None]:
+    message_size: int | None = None,
+) -> tuple[bytearray, bytes | None, int | None]:
     """Return a full frame from the bytes we have in the buffer.
 
-    Returns (next frame keep data, complete frame | None)
+    Returns (next frame keep data, complete frame | None, complete frame size | None)
     """
-    space_pos = buffer.find(b" ")
-    if space_pos == -1:
-        # Incomplete frame
-        return buffer, None
-    # We have a full frame
-    return buffer[space_pos + 1 :], buffer[:space_pos]
+    size = len(buffer)
+    if size < HEADER_SIZE:
+        return buffer, None, None
+    if message_size is None:
+        message_size = struct.unpack("!L", buffer[:HEADER_SIZE])[0]
+    if size < message_size + HEADER_SIZE:
+        return buffer, None, message_size
+    # We have a full frame, avoid extra copy in case we get a large frame.
+    bdata = memoryview(buffer)[HEADER_SIZE : HEADER_SIZE + message_size]
+    return buffer[HEADER_SIZE + message_size :], bytes(bdata), message_size
 
 
 async def _request_linux(
@@ -317,38 +339,56 @@ async def _request_linux(
 ) -> Response:
     """Request from daemon on linux/unix."""
     buffer = bytearray()
-    frame: bytearray | None = None
+    frame: bytes | None = None
     all_responses: list[Response] = []
     async with await trio.open_unix_socket(filename) as connection:
-        # Frame the data by urlencoding it and separating by space.
-        request_frame = base64.encodebytes(request_arguments) + b" "
+        # Frame the request and send.
+        request_frame = (
+            struct.pack("!L", len(request_arguments)) + request_arguments
+        )
         await connection.send_all(request_frame)
 
         is_not_done = True
         while is_not_done:
-            # Receive more data into the buffer.
-            try:
-                if timeout is None:
-                    more = await connection.receive_some()
-                else:
-                    with trio.fail_after(timeout):
-                        more = await connection.receive_some()
-            except trio.TooSlowError:
-                return {"error": "IPC socket connection timed out"}
-            if not more:
-                # Connection closed
-                # Socket was empty and we didn't get any frame.
-                return {
-                    "error": "No data received, IPC socket connection closed.",
-                }
-            buffer.extend(more)
+            # check if we have read entire frame yet
+            buffer, frame, complete_frame_size = frame_from_buffer(buffer)
 
-            buffer, frame = find_frame_in_buffer(buffer)
+            max_read_bytes: int | None
+            if complete_frame_size is None:
+                # if have not read frame size header, do so.
+                max_read_bytes = HEADER_SIZE
+            else:
+                # number of bytes to read next is the complete frame
+                # size - the size header - current bytes count
+                max_read_bytes = max(
+                    HEADER_SIZE,
+                    complete_frame_size - len(buffer) + HEADER_SIZE,
+                )
+
             if frame is None:
+                # Have not read entire frame yet, so receive more data
+                # into the buffer.
+                try:
+                    if timeout is None:
+                        more = await connection.receive_some(max_read_bytes)
+                    else:
+                        with trio.fail_after(timeout):
+                            more = await connection.receive_some(
+                                max_read_bytes,
+                            )
+                except trio.TooSlowError:
+                    return {
+                        "error": f"IPC socket connection timed out ({timeout = })",
+                    }
+                if not more:
+                    # Connection closed
+                    # Socket was empty and we didn't get any frame.
+                    return IPC_CONNECTION_CLOSED_ERROR
+                buffer.extend(more)
                 continue
+
             # Frame is not None, we read a full frame
-            response_text = base64.decodebytes(frame)
-            response = _read_request_response_json(response_text)
+            response = _read_request_response_json(frame)
 
             is_not_done = not bool(response.pop("final", False))
             all_responses.append(response)
