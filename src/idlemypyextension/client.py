@@ -7,7 +7,7 @@ rather than having to read it back from disk on each run.
 # Modified by CoolCat467
 # Original at https://github.com/python/mypy/blob/master/mypy/dmypy/client.py
 # Original retrieved November 24th 2022
-# Last updated to match original on March 11th 2023
+# Updated to match last for c67a4794114d94c765955fa0c2fb0a4cfa32933d
 
 # Mypy (and mypyc) are licensed under the terms of the MIT license,
 # reproduced below.
