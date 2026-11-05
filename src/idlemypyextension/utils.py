@@ -592,7 +592,7 @@ class BaseExtension:
                 raise ValueError(f"Missing function {bind_func_name}")
             bind_func = getattr(self, bind_func_name)
             if not callable(bind_func):
-                raise ValueError(f"{bind_func_name} should be callable")
+                raise TypeError(f"{bind_func_name} should be callable")
             self.text.bind(f"<<{bind_name}>>", bind_func)
 
     def get_rightclick_menu_labels(self) -> list[str | None]:

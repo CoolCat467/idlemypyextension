@@ -216,6 +216,7 @@ async def get_status_init_cwd(
 ) -> str | None:
     """Return current working directory mypy daemon was initialized with."""
     current = await _read_status(status_file)
+    # return None
     init_cwd = current.get("init_cwd")
     if init_cwd is not None:
         return str(init_cwd)

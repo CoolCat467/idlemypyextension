@@ -27,32 +27,41 @@ __version__ = "0.1.0"
 
 import contextlib
 import queue
-import sys
 import threading
 import tkinter as tk
 import weakref
 from enum import IntEnum, auto
 from functools import partial, wraps
+from math import isinf
 from tkinter import messagebox
 from traceback import format_exception
-from typing import TYPE_CHECKING, Any, TypeGuard
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    NamedTuple,
+    TypeGuard,
+    TypeVar,
+)
+
+import outcome
 
 from idlemypyextension import utils
 from idlemypyextension.moduleguard import guard_imports
 
-with guard_imports({"trio", "exceptiongroup"}):
+with guard_imports({"trio"}):
     import trio
-
-    if sys.version_info < (3, 11):  # pragma: nocover
-        from exceptiongroup import ExceptionGroup
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from typing import Literal
 
     from outcome import Outcome
     from typing_extensions import Self, TypeVarTuple, Unpack
 
     PosArgT = TypeVarTuple("PosArgT")
+
+T = TypeVar("T")
 
 
 def debug(message: object) -> None:  # pragma: nocover
@@ -122,20 +131,6 @@ class RunStatus(IntEnum):
     NO_TASK = auto()
 
 
-def evil_does_trio_have_runner() -> bool:  # pragma: nocover
-    """Evil function to see if trio has a runner."""
-    core = getattr(trio, "_core", None)
-    if core is None:
-        return False
-    run = getattr(core, "_run", None)
-    if run is None:
-        return False
-    global_run_context = getattr(run, "GLOBAL_RUN_CONTEXT", None)
-    if global_run_context is None:
-        return False
-    return hasattr(global_run_context, "runner")
-
-
 def is_tk_wm_and_misc_subclass(
     val: tk.Toplevel | tk.Tk | object,
 ) -> TypeGuard[tk.Toplevel | tk.Tk]:
@@ -143,50 +138,66 @@ def is_tk_wm_and_misc_subclass(
     return isinstance(val, tk.Toplevel | tk.Tk)
 
 
+class ThreadRunnerTask(NamedTuple, Generic[T]):
+    """Thread runner task."""
+
+    task: Callable[[], T]
+    response: queue.Queue[outcome.Maybe[T]]
+
+
+def get_after_delay_to_next_trio_deadline() -> int | Literal["idle"]:
+    """Return tk.after delay for next trio deadline.
+
+    Trio must be running for this to work.
+    Check if trio is running with ``trio.lowlevel.in_trio_run()``
+    """
+    statistics = trio.lowlevel.current_statistics()
+    ##    print(f'{statistics = }')
+    ##    if trio.lowlevel.in_trio_task():
+    ##    task = trio.lowlevel.current_trio_token()
+    ##        print(f'{trio.current_effective_deadline() = }')
+    ##    print(f'{task = }')
+    ms = statistics.seconds_to_next_deadline * 1000
+    if isinf(ms):
+        return "idle"
+    return int(ms)
+
+
 class ThreadRunner:
-    """Thread runner."""
+    """Thread runner. Call a function remotely one thread from another."""
 
-    __slots__ = ("check_period", "run_queue", "running")
+    __slots__ = ("check_period_ms", "run_queue", "running")
 
-    def __init__(self, check_period: int = 30) -> None:
+    def __init__(self, check_period_ms: int = 100) -> None:
         """Initialize thread runner."""
         self.running = False
-        self.check_period = check_period
+        self.check_period_ms = check_period_ms
 
-        self.run_queue: queue.Queue[
-            tuple[
-                Callable[[], Any],
-                queue.Queue[
-                    tuple[
-                        bool,
-                        Exception | None,
-                    ]
-                ],
-            ]
-        ] = queue.Queue(1)
+        self.run_queue: queue.Queue[ThreadRunnerTask[Any]] = queue.Queue(1)
 
     def check_events(self, tk: tk.Toplevel | tk.Tk) -> None:
         """Check for events to process."""
-        not_empty = False
+        delay_ms: int | Literal["idle"] = "idle"
+        # not_empty = False
         while self.running:
             try:
                 function, response_queue = self.run_queue.get_nowait()
             except queue.Empty:
                 break
             else:
-                not_empty = True
-            try:
-                function()
-            except Exception as exc:
-                response_queue.put((True, exc))
-            else:
-                response_queue.put((False, None))
+                delay_ms = self.check_period_ms
+            # else:
+            #     not_empty = True
+            response_queue.put(outcome.capture(function))
+        if not self.running:
+            return
         # Schedule to check again. If we just processed an event, check
         # immediately; if we didn't, check later.
-        if not_empty:
-            tk.after_idle(self.check_events, tk)
-        elif self.running:
-            tk.after(self.check_period, self.check_events, tk)
+        ##if trio.lowlevel.in_trio_run():
+        ##    delay_ms = get_after_delay_to_next_trio_deadline()
+        # print(f'{delay_ms = }')
+        tk.after(delay_ms, self.check_events, tk)
+        # print(f'{tk.after_info() = }')
 
     def start_run(self, tk: tk.Toplevel | tk.Tk) -> None:
         """Start checking for events in this thread."""
@@ -203,28 +214,21 @@ class ThreadRunner:
         """Return if is running."""
         return self.running
 
-    def __call__(self, function: Callable[[], Any]) -> None:
+    def __call__(self, function: Callable[[], T]) -> T:
         """Call a function using run in different thread."""
         if not self.running:
             raise RuntimeError("Not running")
-        response_queue: queue.Queue[
-            tuple[
-                bool,
-                Exception | None,
-            ]
-        ] = queue.Queue(1)
+        response_queue: queue.Queue[outcome.Maybe[T]] = queue.Queue(1)
         self.run_queue.put(
-            (
+            ThreadRunnerTask(
                 function,
                 response_queue,
             ),
-            True,
-            2,
+            block=True,
+            timeout=2,
         )
-        is_exception, maybe_exc = response_queue.get(True, None)
-        if is_exception:
-            assert maybe_exc is not None
-            raise maybe_exc
+        response = response_queue.get(True, None)
+        return response.unwrap()
 
 
 class TkTrioRunner:
@@ -297,18 +301,19 @@ class TkTrioRunner:
 
     def schedule_task_threadsafe(
         self,
-        function: Callable[[], object],
-    ) -> None:
+        function: Callable[[], T],
+    ) -> T | None:
         """Schedule task in Tkinter's event loop."""
         try:
-            self.thread_runner(function)
+            return self.thread_runner(function)
         except Exception as exc:
             debug(f"Exception scheduling task {function = }")
             # probably "main thread is not in main loop" error
-            # mtTkinter is supposed to fix this sort of issue
+            # ThreadRunner is supposed to fix this sort of issue
             utils.extension_log_exception(exc)
 
             self.cancel_current_task()
+            raise
 
     def schedule_task_not_threadsafe(
         self,
@@ -317,6 +322,9 @@ class TkTrioRunner:
     ) -> None:
         """Schedule task in Tkinter's event loop."""
         try:
+            # delay = get_after_delay_to_next_trio_deadline()
+            # print(f'{delay = }')
+            # self.root.after(delay, function, *args)
             self.root.after_idle(function, *args)
         except Exception as exc:
             debug(f"Exception scheduling task {function = }")
@@ -343,10 +351,10 @@ class TkTrioRunner:
         try:
             self.nursery.cancel_scope.cancel()
         except RuntimeError as exc:
-            # probably "must be called from async context" error
-            # because the exception that triggered this was from
-            # a start group tick failing because of start_soon
-            # not running from main thread because thread lock shenanigans
+            # probably "must be called from async context" error because
+            # the exception that triggered this was from a start group
+            # tick failing because of start_soon not running from main
+            # thread because thread lock shenanigans
 
             # Stop thread runner
             self.thread_runner.stop_run()
@@ -376,7 +384,7 @@ class TkTrioRunner:
         del self.nursery
         try:
             outcome.unwrap()
-        except ExceptionGroup as exc:
+        except BaseException as exc:
             utils.extension_log_exception(exc)
 
     def _start_async_task(
@@ -384,7 +392,7 @@ class TkTrioRunner:
         function: Callable[[], Awaitable[Any]],
     ) -> None:
         """Run async task in new nursery."""
-        if evil_does_trio_have_runner():
+        if trio.lowlevel.in_trio_run():
             self.show_warning_trio_already_running()
             return
 
@@ -420,6 +428,7 @@ class TkTrioRunner:
             run_sync_soon_threadsafe=self.schedule_task_threadsafe,
             run_sync_soon_not_threadsafe=self.schedule_task_not_threadsafe,
             host_uses_signal_set_wakeup_fd=False,
+            # instruments=[Tracer()],
             restrict_keyboard_interrupt_to_checkpoints=True,
             strict_exception_groups=True,
         )
@@ -498,6 +507,11 @@ class TkTrioRunner:
         extra_message: str = "",
     ) -> None:
         """Show warning that previous trio run needs to stop."""
+        if not check_main_thread():
+            print(f"[{__title__}] Irrecoverable error while stopping")
+            if extra_message:
+                print(extra_message)
+            return
         messagebox.showwarning(
             title="Irrecoverable Error While Stopping",
             message=(
@@ -564,6 +578,15 @@ class TkTrioRunner:
         return self._start_async_task(function)
 
 
+class Tracer(trio.abc.Instrument):
+    """Tracer that prints out before io waits."""
+
+    def before_io_wait(self, timeout: float) -> None:
+        """Print timeout in milliseconds."""
+        timeout_ms = timeout * 1000
+        print(f"io {timeout_ms = }")
+
+
 def run() -> None:
     """Run test of module."""
 
@@ -591,6 +614,7 @@ def run() -> None:
 
     # Wait a tiny bit so main loop is running from main thread
     root.after(10, trigger_trio_runs)
+    root.after(10000, trigger_trio_runs)
     print("synchronous after trio run start")
     # If testing without IDLE, uncomment the line below:
     # root.mainloop()
