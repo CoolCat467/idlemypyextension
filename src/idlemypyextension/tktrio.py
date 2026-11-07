@@ -245,7 +245,8 @@ class ThreadRunner:
             timeout=2,
         )
         response = response_queue.get(True, None)
-        response_queue.shutdown(immediate=True)
+        # 3.13+
+        # response_queue.shutdown(immediate=True)
         return response.unwrap()
 
 
