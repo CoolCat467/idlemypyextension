@@ -106,14 +106,14 @@ definition
 `timeout_mins` controls how long the mypy daemon will time out after,
 in minutes.
 
-`restart_on_new_project` toggles if the extension should restart dmypy
-daemon any time you check a file not within the same directory tree as
-the file the daemon was checking when it last restarted. This helps
+`restart_on_new_project` toggles if the extension should restart the
+mypy daemon any time you check a file not within the same directory tree
+as the file the daemon was checking when it last restarted. This helps
 avoid a crash because of a bug in the way the dmypy keeps track of its
-files. Hopefully the root problem gets fixed one day but at the time of
-writing it is still a problem.
+file cache. Hopefully the root problem gets fixed one day but at the
+time of writing it is still a problem.
 
-`should_restart_always` toggles if the extension should restart dmypy
+`should_restart_always` toggles if the extension should restart the mypy
 daemon before every run. May be helpful in some cases because of issues
 with errors not being reported on subsequent runs, but this will slow
 things down a lot.
