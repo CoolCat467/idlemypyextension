@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 # TKTrio - Run Trio on top of Tkinter.
-# Copyright (C) 2023-2025  CoolCat467
+# Copyright (C) 2023-2026  CoolCat467
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -38,18 +38,17 @@ from traceback import format_exception
 from typing import (
     TYPE_CHECKING,
     Any,
-    Generic,
-    NamedTuple,
+    Protocol,
     TypeGuard,
     TypeVar,
+    overload,
 )
-
-import outcome
 
 from idlemypyextension import utils
 from idlemypyextension.moduleguard import guard_imports
 
-with guard_imports({"trio"}):
+with guard_imports({"trio", "outcome"}):
+    import outcome
     import trio
 
 if TYPE_CHECKING:
@@ -75,15 +74,34 @@ def check_main_thread() -> bool:
     return threading.current_thread() is threading.main_thread()
 
 
+class ProtocolMethod(Protocol):
+    """Tkinter protocol method function protocol."""
+
+    @overload
+    def __call__(
+        self,
+        name: str,
+        func: Callable[[], object] | str,
+    ) -> None: ...
+    @overload
+    def __call__(self, name: str, func: None = ...) -> str: ...
+    @overload
+    def __call__(
+        self,
+        name: None = ...,
+        func: None = ...,
+    ) -> tuple[str, ...]: ...
+
+
 def install_protocol_override(
     root: tk.Wm,
     override: Callable[
         [
             str | None,
-            Callable[[], None] | None,
-            Callable[[str | None, Callable[[], None] | None], str],
+            Callable[[], object] | None,
+            ProtocolMethod,
         ],
-        str,
+        str | tuple[str, ...] | None,
     ],
 ) -> None:
     """Install protocol override.
@@ -99,8 +117,8 @@ def install_protocol_override(
     def new_protocol(
         name: str | None = None,
         func: Callable[[], None] | None = None,
-    ) -> str:
-        return override(name, func, original)  # type: ignore[arg-type]
+    ) -> str | tuple[str, ...] | None:
+        return override(name, func, original)
 
     root.protocol = new_protocol  # type: ignore[assignment]
 
@@ -138,13 +156,6 @@ def is_tk_wm_and_misc_subclass(
     return isinstance(val, tk.Toplevel | tk.Tk)
 
 
-class ThreadRunnerTask(NamedTuple, Generic[T]):
-    """Thread runner task."""
-
-    task: Callable[[], T]
-    response: queue.Queue[outcome.Maybe[T]]
-
-
 def get_after_delay_to_next_trio_deadline() -> int | Literal["idle"]:
     """Return tk.after delay for next trio deadline.
 
@@ -168,35 +179,41 @@ class ThreadRunner:
 
     __slots__ = ("check_period_ms", "run_queue", "running")
 
-    def __init__(self, check_period_ms: int = 100) -> None:
+    def __init__(self, check_period_ms: int = 30) -> None:
         """Initialize thread runner."""
         self.running = False
         self.check_period_ms = check_period_ms
 
-        self.run_queue: queue.Queue[ThreadRunnerTask[Any]] = queue.Queue(1)
+        self.run_queue: queue.Queue[
+            tuple[Callable[[], Any], queue.Queue[outcome.Maybe[Any]]]
+        ] = queue.Queue(1)
 
     def check_events(self, tk: tk.Toplevel | tk.Tk) -> None:
         """Check for events to process."""
         delay_ms: int | Literal["idle"] = "idle"
-        # not_empty = False
         while self.running:
             try:
                 function, response_queue = self.run_queue.get_nowait()
             except queue.Empty:
-                break
-            else:
                 delay_ms = self.check_period_ms
-            # else:
-            #     not_empty = True
+                break
             response_queue.put(outcome.capture(function))
+
         if not self.running:
             return
+
+        ##print(f"[{__name__}] {self.__class__.__name__} check_events {delay_ms = }")
+        ##if trio.lowlevel.in_trio_run():
+        ##    print(trio.lowlevel.current_statistics())
+        ##    # delay_ms = get_after_delay_to_next_trio_deadline()
+        ##else:
+        ##    print("no trio run click")
+        # print(f'{delay_ms = }')
+
         # Schedule to check again. If we just processed an event, check
         # immediately; if we didn't, check later.
-        ##if trio.lowlevel.in_trio_run():
-        ##    delay_ms = get_after_delay_to_next_trio_deadline()
-        # print(f'{delay_ms = }')
         tk.after(delay_ms, self.check_events, tk)
+
         # print(f'{tk.after_info() = }')
 
     def start_run(self, tk: tk.Toplevel | tk.Tk) -> None:
@@ -220,7 +237,7 @@ class ThreadRunner:
             raise RuntimeError("Not running")
         response_queue: queue.Queue[outcome.Maybe[T]] = queue.Queue(1)
         self.run_queue.put(
-            ThreadRunnerTask(
+            (
                 function,
                 response_queue,
             ),
@@ -228,6 +245,7 @@ class ThreadRunner:
             timeout=2,
         )
         response = response_queue.get(True, None)
+        response_queue.shutdown(immediate=True)
         return response.unwrap()
 
 
@@ -249,8 +267,7 @@ class TkTrioRunner:
         cls,
         root: tk.Toplevel | tk.Tk,
         # hold_global_object: object | None,
-        *args: Any,
-        **kwargs: Any,
+        restore_close: Callable[[], object] | None = None,
     ) -> Self:
         """Either return new instance or get existing runner from root."""
         if not is_tk_wm_and_misc_subclass(root):
@@ -275,7 +292,7 @@ class TkTrioRunner:
         self,
         root: tk.Toplevel | tk.Tk,
         # hold_global_object: object | None = None,
-        restore_close: Callable[[], Any] | None = None,
+        restore_close: Callable[[], object] | None = None,
     ) -> None:
         """Initialize trio runner."""
         # if hold_global_object is None:
@@ -302,7 +319,7 @@ class TkTrioRunner:
     def schedule_task_threadsafe(
         self,
         function: Callable[[], T],
-    ) -> T | None:
+    ) -> T:
         """Schedule task in Tkinter's event loop."""
         try:
             return self.thread_runner(function)
@@ -386,26 +403,30 @@ class TkTrioRunner:
             outcome.unwrap()
         except BaseException as exc:
             utils.extension_log_exception(exc)
+            raise
+
+    @trio.lowlevel.disable_ki_protection
+    async def _run_nursery(
+        self,
+        function: Callable[[], Awaitable[None]],
+    ) -> None:
+        """Run nursery."""
+        assert self.run_status == RunStatus.TRIO_STARTING
+        async with trio.open_nursery(
+            strict_exception_groups=True,
+        ) as nursery:
+            self.nursery = nursery
+            self.run_status = RunStatus.TRIO_RUNNING
+            self.nursery.start_soon(function)
+        return
 
     def _start_async_task(
         self,
-        function: Callable[[], Awaitable[Any]],
+        function: Callable[[], Awaitable[None]],
     ) -> None:
         """Run async task in new nursery."""
         if trio.lowlevel.in_trio_run():
             self.show_warning_trio_already_running()
-            return
-
-        @trio.lowlevel.disable_ki_protection
-        async def run_nursery() -> None:
-            """Run nursery."""
-            assert self.run_status == RunStatus.TRIO_STARTING
-            async with trio.open_nursery(
-                strict_exception_groups=True,
-            ) as nursery:
-                self.nursery = nursery
-                self.run_status = RunStatus.TRIO_RUNNING
-                self.nursery.start_soon(function)
             return
 
         if self.run_status != RunStatus.NO_TASK:
@@ -423,7 +444,8 @@ class TkTrioRunner:
         self.run_status = RunStatus.TRIO_STARTING
 
         trio.lowlevel.start_guest_run(
-            run_nursery,
+            self._run_nursery,
+            function,
             done_callback=self._done_callback,
             run_sync_soon_threadsafe=self.schedule_task_threadsafe,
             run_sync_soon_not_threadsafe=self.schedule_task_not_threadsafe,
@@ -433,64 +455,93 @@ class TkTrioRunner:
             strict_exception_groups=True,
         )
 
-    def get_del_window_proto(
+    def delete_window_protocol_wrapper(
         self,
-        new_protocol: Callable[[], None] | None,
-    ) -> Callable[[], None]:
-        """Create new WM_DELETE_WINDOW protocol to shut down trio properly."""
+        original_close_protocol: Callable[[], object] | None,
+    ) -> None:
+        """Shut down trio properly and then call original window close protocol function."""
+        # # If this is first time, withdraw root
+        if not self.received_loop_close_request:
+            self.root.withdraw()
+        self.received_loop_close_request = True
+        # If a task is still running
+        if self.run_status == RunStatus.TRIO_RUNNING_CANCELING:
+            # Error happened and cancel failed
+            # Hopefully will be ok because closing host loop
+            self.run_status = RunStatus.NO_TASK
+            debug(
+                "Changing run status Canceling -> No Task, error happened during canceling.",
+            )
+        if self.run_status == RunStatus.TRIO_RUNNING:
+            # Cancel it if not already canceled
+            self.cancel_current_task()
+        if self.run_status != RunStatus.NO_TASK:
+            # Rerun this function again in the future until no task running.
+            self.schedule_task_not_threadsafe(
+                self.delete_window_protocol_wrapper,
+                original_close_protocol,
+            )
+            return
+        # No more tasks
+        # Make sure to uninstall override or IDLE gets mad
+        uninstall_protocol_override(self.root)
+        self.installed_proto_override = False
+        # If close function exists, call it.
+        if original_close_protocol is not None:
+            self.root.deiconify()
+            original_close_protocol()
+            return
+        return
 
-        def shutdown_then_call() -> None:
-            # If this is first time, withdraw root
-            if not self.received_loop_close_request:
-                self.root.withdraw()
-            self.received_loop_close_request = True
-            # If a task is still running
-            if self.run_status == RunStatus.TRIO_RUNNING_CANCELING:
-                # Error happened and cancel failed
-                # Hopefully will be ok because closing host loop
-                self.run_status = RunStatus.NO_TASK
-                debug(
-                    "Changing run status Canceling -> No Task, error happened during canceling.",
-                )
-            if self.run_status == RunStatus.TRIO_RUNNING:
-                # Cancel it if not already canceled
-                self.cancel_current_task()
-            if self.run_status != RunStatus.NO_TASK:
-                # Rerun this function again in the future until no task running.
-                self.schedule_task_not_threadsafe(shutdown_then_call)
-                return None
-            # No more tasks
-            # Make sure to uninstall override or IDLE gets mad
-            uninstall_protocol_override(self.root)
-            self.installed_proto_override = False
-            # If close function exists, call it.
-            if new_protocol is not None:
-                return new_protocol()
-            return None
-
-        return shutdown_then_call
+    @overload
+    def host_loop_close_override(
+        self,
+        name: str | None,
+        new_protocol: Callable[[], object] | str,
+        original_bind_proto: ProtocolMethod,
+    ) -> None: ...
+    @overload
+    def host_loop_close_override(
+        self,
+        name: str,
+        new_protocol: None,
+        original_bind_proto: ProtocolMethod,
+    ) -> str: ...
+    @overload
+    def host_loop_close_override(
+        self,
+        name: None,
+        new_protocol: None,
+        original_bind_proto: ProtocolMethod,
+    ) -> tuple[str, ...]: ...
 
     def host_loop_close_override(
         self,
         name: str | None,
-        new_protocol: Callable[[], None] | None,
-        original_bind_proto: Callable[
-            [str | None, Callable[[], None] | None],
-            str,
-        ],
-    ) -> str:
+        new_protocol: Callable[[], object] | str | None,
+        original_bind_proto: ProtocolMethod,
+    ) -> tuple[str, ...] | str | None:
         """Override for new protocols on tkinter root.
 
         Catch new protocols for `WM_DELETE_WINDOW` and replace them
         with our own that will cancel trio run and make sure it closes, and
         then call the new protocol
         """
-        if name != "WM_DELETE_WINDOW":
-            # Not important to us
+        if name is None or new_protocol is None:
+            return original_bind_proto(None, None)
+
+        # if not WM_DELETE_WINDOW, not important to us.
+        # if new protocol is a string, trying to unset WM_DELETE_WINDOW,
+        # in that case probably fine to pass original.
+        if name != "WM_DELETE_WINDOW" or isinstance(new_protocol, str):
             return original_bind_proto(name, new_protocol)
+
+        # What we want to interrupt is setting a WM_DELETE_WINDOW that
+        # calls destroy, which would stop the trio run and break things.
+        # This is where we want our custom wrapper.
         return original_bind_proto(
             name,
-            self.get_del_window_proto(new_protocol),
+            partial(self.delete_window_protocol_wrapper, new_protocol),
         )
 
     def show_warning_trio_already_running(self) -> None:
@@ -507,6 +558,8 @@ class TkTrioRunner:
         extra_message: str = "",
     ) -> None:
         """Show warning that previous trio run needs to stop."""
+        # tkinter will not open the warning window properly unless
+        # called from the main thread
         if not check_main_thread():
             print(f"[{__title__}] Irrecoverable error while stopping")
             if extra_message:
@@ -578,13 +631,13 @@ class TkTrioRunner:
         return self._start_async_task(function)
 
 
-class Tracer(trio.abc.Instrument):
-    """Tracer that prints out before io waits."""
-
-    def before_io_wait(self, timeout: float) -> None:
-        """Print timeout in milliseconds."""
-        timeout_ms = timeout * 1000
-        print(f"io {timeout_ms = }")
+# class Tracer(trio.abc.Instrument):
+#     """Tracer that prints out before io waits."""
+#
+#    def before_io_wait(self, timeout: float) -> None:
+#         """Print timeout in milliseconds."""
+#         timeout_ms = timeout * 1000
+#         print(f"io {timeout_ms = }")
 
 
 def run() -> None:
@@ -614,10 +667,10 @@ def run() -> None:
 
     # Wait a tiny bit so main loop is running from main thread
     root.after(10, trigger_trio_runs)
-    root.after(10000, trigger_trio_runs)
+    # root.after(10000, trigger_trio_runs)
     print("synchronous after trio run start")
     # If testing without IDLE, uncomment the line below:
-    # root.mainloop()
+    root.mainloop()
 
 
 if __name__ == "__main__":

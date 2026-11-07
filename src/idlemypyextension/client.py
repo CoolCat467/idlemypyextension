@@ -190,36 +190,35 @@ async def _write_status(
     await path.write_bytes(orjson.dumps(data) + b"\n")
 
 
-async def add_status_init_cwd(
+async def add_status_project_path(
     status_file: str | os.PathLike[str],
     current_working_directory: str | os.PathLike[str] | None,
 ) -> None:
     """Add current working directory to mypy daemon status file.
 
     current_working_directory should be an absolute path or None.
-    If None, deletes `init_cwd` key.
+    If None, deletes `project_path` key.
 
     Raise BadStatusError if the status file doesn't exist or contains
     invalid JSON or the JSON is not a dict.
     """
     current = await _read_status(status_file)
     if current_working_directory is not None:
-        current["init_cwd"] = str(current_working_directory)
+        current["project_path"] = str(current_working_directory)
     else:
-        current["init_cwd"] = None
-        del current["init_cwd"]
+        del current["project_path"]
     await _write_status(status_file, current)
 
 
-async def get_status_init_cwd(
+async def get_status_project_path(
     status_file: str | os.PathLike[str],
 ) -> str | None:
     """Return current working directory mypy daemon was initialized with."""
     current = await _read_status(status_file)
     # return None
-    init_cwd = current.get("init_cwd")
-    if init_cwd is not None:
-        return str(init_cwd)
+    project_path = current.get("project_path")
+    if project_path is not None:
+        return str(project_path)
     return None
 
 
@@ -511,7 +510,7 @@ async def _start_server(
     if server_running:
         # If server started properly, add current working directory
         # daemon was started with to the status file.
-        await add_status_init_cwd(status_file, await trio.Path.cwd())
+        await add_status_project_path(status_file, await trio.Path.cwd())
     return server_running
 
 

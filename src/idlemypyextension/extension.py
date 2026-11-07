@@ -190,6 +190,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         "suggest_replace": "False",
         "timeout_mins": "30",
         "action_max_sec": "None",
+        "restart_on_new_project": "True",
         "should_restart_always": "False",
         "force_base_ipc_request": "False",
     }
@@ -552,12 +553,12 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
     async def shutdown_dmypy_daemon_event_async(
         self,
         event: Event[Misc] | None = None,
-    ) -> str:
+    ) -> None:
         """Shutdown dmypy daemon event handler."""
         # pylint: disable=unused-argument
         if not await client.is_running(self.status_file):
             self.text.bell()
-            return "break"
+            return
 
         # Only stop if running
         command = f'dmypy --status-file="{self.status_file}" stop'
@@ -568,53 +569,94 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             # Kill
             await client.kill(self.status_file)
 
-        return "break"
+    async def get_path_relative_to_project(
+        self,
+        path: Path,
+    ) -> tuple[Path, bool]:
+        """Return tuple of (potentially relative path, is relative).
 
-    async def check(self, file: Path) -> client.Response:
-        """Perform dmypy check."""
+        Return path relative to daemon start directory if known.
+        If unknown or daemon is not running, returns path as-is.
+        """
+        try:
+            project_path = await client.get_status_project_path(
+                self.status_file,
+            )
+            debug(f"{project_path = }")
+        except client.BadStatusError:
+            # Happens if status file is bad or daemon not running
+            project_path = None
+
+        if project_path is not None and path.is_relative_to(project_path):
+            return path.relative_to(project_path), True
+        return path, False
+
+    async def dmypy_run(self, file: Path) -> client.Response:
+        """Perform dmypy run."""
+        # TODO: may need to do relative file thing like dmypy_check
         if self.should_restart_always != "False":
             await self.shutdown_dmypy_daemon_event_async()
+
         if not await self.ensure_daemon_running():
             return COULD_NOT_START_ERROR
-        ##flags = self.flags
-        ##flags += [file]
-        ### debug(f"check {flags = }")
-        ##command = " ".join(
-        ##    x
-        ##    for x in [
-        ##        "dmypy",
-        ##        f'--status-file="{self.status_file}"',
-        ##        "run",
-        ##        (
-        ##            f"--timeout={self.action_timeout}"
-        ##            if self.action_timeout
-        ##            else ""
-        ##        ),
-        ##        f'--log-file="{self.log_file}"',
-        ##        "--export-types",
-        ##        f'"{file}"',
-        ##        "--",
-        ##        *self.flags,
-        ##    ]
-        ##    if x
-        ##)
-        ##debug(f"{command = }")
-        ##return await client.run(
-        ##    self.status_file,
-        ##    flags=flags,
-        ##    timeout=self.action_timeout,
-        ##    daemon_timeout=self.daemon_timeout,
-        ##    log_file=self.log_file,
-        ##    export_types=True,
-        ##)
-        init_cwd = await client.get_status_init_cwd(self.status_file)
-        if init_cwd is not None and file.is_relative_to(init_cwd):
-            relative_file = file.relative_to(init_cwd)
-        else:
-            relative_file = file
-            ### Delete `init_cwd` key to avoid KeyError crash in
-            ### mypy generate_unused_ignore_errors
-            ##await client.add_status_init_cwd(self.status_file, None)
+
+        flags = self.flags
+        flags += [str(file)]
+        # debug(f"check {flags = }")
+        command = " ".join(
+            x
+            for x in [
+                "dmypy",
+                f"--status-file='{self.status_file}'",
+                "run",
+                (
+                    f"--timeout={self.action_timeout}"
+                    if self.action_timeout
+                    else ""
+                ),
+                f"--log-file='{self.log_file}'",
+                "--export-types",
+                f"'{file}'",
+                "--",
+                *self.flags,
+            ]
+            if x
+        )
+        debug(f"{command = }")
+        return await client.run(
+            self.status_file,
+            flags=flags,
+            timeout=self.action_timeout,
+            daemon_timeout=self.daemon_timeout,
+            log_file=self.log_file,
+            export_types=True,
+        )
+
+    async def dmypy_check(self, file: Path) -> client.Response:
+        """Perform dmypy check."""
+        (
+            relative_file,
+            file_is_relative,
+        ) = await self.get_path_relative_to_project(file)
+
+        trigger_stop = self.should_restart_always != "False" or (
+            not file_is_relative and self.restart_on_new_project == "True"
+        )
+        if trigger_stop:
+            await self.shutdown_dmypy_daemon_event_async()
+
+        if not await self.ensure_daemon_running():
+            return COULD_NOT_START_ERROR
+
+        if trigger_stop:
+            # If server started properly, add project directory daemon
+            # checked to the status file.
+            project_path = file.parent
+            await client.add_status_project_path(
+                self.status_file,
+                project_path,
+            )
+
         command = f"dmypy --status-file='{self.status_file}' check --export-types {str(relative_file)!r}"
         debug(f"{command = }")
         return await client.check(
@@ -805,16 +847,13 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         # Everything worked
         return None, file
 
-    async def suggest_signature_event_async(self, event: Event[Misc]) -> str:
+    async def suggest_signature_event_async(self, event: Event[Misc]) -> None:
         """Handle suggest signature event."""
         # pylint: disable=unused-argument
         init_return, file = self.initial()
 
-        if init_return is not None:
-            return init_return
-
-        if file is None:
-            return "break"
+        if init_return is not None or file is None:
+            return
 
         # if client.REQUEST_LOCK.locked():
         #     # If already requesting something from daemon,
@@ -827,8 +866,6 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         await self.suggest(file, self.editwin.getlineno())
 
-        return "break"
-
     async def dmypy_inspect(
         self,
         location: str,
@@ -836,30 +873,31 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         include_span: bool,
     ) -> client.Response:
         """Return result from dmypy inspect."""
-        if await self.ensure_daemon_running():
-            command = " ".join(
-                x
-                for x in (
-                    "dmypy",
-                    f"--status-file='{self.status_file}'",
-                    "inspect",
-                    f"--show={show!r}",
-                    ("--include-span" if include_span else ""),
-                    "--force-reload",
-                    f"{location!r}",
-                )
-                if x
-            )
-            debug(f"{command = }")
+        if not await self.ensure_daemon_running():
+            return COULD_NOT_START_ERROR
 
-            return await client.inspect(
-                self.status_file,
-                location=location,
-                show=show,
-                include_span=include_span,
-                force_reload=True,  # needed_save,
+        command = " ".join(
+            x
+            for x in (
+                "dmypy",
+                f"--status-file='{self.status_file}'",
+                "inspect",
+                f"--show={show!r}",
+                ("--include-span" if include_span else ""),
+                "--force-reload",
+                f"{location!r}",
             )
-        return COULD_NOT_START_ERROR
+            if x
+        )
+        debug(f"{command = }")
+
+        return await client.inspect(
+            self.status_file,
+            location=location,
+            show=show,
+            include_span=include_span,
+            force_reload=True,  # needed_save,
+        )
 
     async def dmypy_inspect_shared(
         self,
@@ -906,17 +944,15 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
 
         return True, (output, file, start_line)
 
-    async def dmypy_inspect_type_event_async(self, event: Event[Misc]) -> str:
+    async def dmypy_inspect_type_event_async(self, event: Event[Misc]) -> None:
         """Perform dmypy inspect type from right click menu."""
         success, maybe_response = await self.dmypy_inspect_shared(
             show="type",
             include_span=True,
         )
         if not success:
-            value = maybe_response
-            assert not isinstance(value, tuple)
             # Failed somehow
-            return value
+            return
 
         response_tuple = maybe_response
         assert isinstance(response_tuple, tuple)
@@ -933,22 +969,18 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             )
         self.add_comments(comments)
 
-        return "break"
-
     async def dmypy_goto_definition_event_async(
         self,
         event: Event[Misc],
-    ) -> str:
+    ) -> None:
         """Perform dmypy inspect definition from right click menu."""
         success, maybe_response = await self.dmypy_inspect_shared(
             show="definition",
             include_span=False,
         )
         if not success:
-            value = maybe_response
-            assert not isinstance(value, tuple)
             # Failed somehow
-            return value
+            return
 
         response_tuple = maybe_response
         assert isinstance(response_tuple, tuple)
@@ -969,12 +1001,10 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
         # On failure do a bell
         if editor_window is None:
             self.text.bell()
-            return "break"
+            return
 
         # Show selection in file
         utils.show_hit(editor_window.text, *position.as_select(), tag="sel")
-
-        return "break"
 
     async def dmypy_inspect_attrs_event_async(
         self,
@@ -1085,7 +1115,7 @@ class idlemypyextension(utils.BaseExtension):  # noqa: N801
             return "break"
 
         # Run mypy on open file
-        response = await self.check(file)
+        response = await self.dmypy_check(file)
 
         self.type_check_add_response_comments(response, str(file))
         return "break"

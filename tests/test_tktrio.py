@@ -70,10 +70,13 @@ class FakeTK:
     def withdraw(self) -> None:
         """Fake hide window."""
 
+    def deiconify(self) -> None:
+        """Fake unhide window."""
+
     def protocol(
         self,
         name: str | None,
-        func: Callable[[], None] | None = None,
+        func: Callable[[], object] | str | None = None,
     ) -> None:
         """Fake protocol."""
 
@@ -160,7 +163,10 @@ def test_cancel_current_task(trio_runner: TkTrioRunner) -> None:
 def test_get_del_window_proto(trio_runner: TkTrioRunner) -> None:
     """Test the WM_DELETE_WINDOW protocol."""
     new_protocol = MagicMock()
-    shutdown_function = trio_runner.get_del_window_proto(new_protocol)
+    shutdown_function = partial(
+        trio_runner.delete_window_protocol_wrapper,
+        new_protocol,
+    )
 
     # Call the shutdown function
     shutdown_function()
